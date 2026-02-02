@@ -1,8 +1,10 @@
 """Tests for the plotting module."""
 
-import matplotlib
+from __future__ import annotations
 
-matplotlib.use("Agg")  # Use non-interactive backend for testing
+import matplotlib as mpl
+
+mpl.use("Agg")  # Use non-interactive backend for testing
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -35,30 +37,28 @@ from otai_forecast.plots import (
 @pytest.fixture
 def sample_df():
     """Create a sample DataFrame for testing."""
-    return pd.DataFrame(
-        {
-            "month": range(12),
-            "cash": [100000 + i * 5000 for i in range(12)],
-            "revenue_total": [1000 * i for i in range(1, 13)],
-            "revenue_ttm": [
-                sum([1000 * j for j in range(1, min(i + 1, 13))]) for i in range(12)
-            ],
-            "free_active": [100 * i for i in range(1, 13)],
-            "pro_active": [10 * i for i in range(1, 13)],
-            "ent_active": [i for i in range(1, 13)],
-            "product_value": [100 + i * 2 for i in range(12)],
-            "leads_total": [50 * i for i in range(1, 13)],
-            "net_cashflow": [5000 - i * 100 for i in range(12)],
-            "market_cap": [10000 * i for i in range(1, 13)],
-            "sales_spend": [1000 + i * 50 for i in range(12)],
-            "costs_ex_tax": [800 * i for i in range(1, 13)],
-            "ads_clicks": [100 * i for i in range(1, 13)],
-            "website_leads": [30 * i for i in range(1, 13)],
-            "direct_leads": [10 * i for i in range(1, 13)],
-            "new_pro": [5 * i for i in range(1, 13)],
-            "new_ent": [i for i in range(1, 13)],
-        }
-    )
+    return pd.DataFrame({
+        "month": range(12),
+        "cash": [100000 + i * 5000 for i in range(12)],
+        "revenue_total": [1000 * i for i in range(1, 13)],
+        "revenue_ttm": [
+            sum([1000 * j for j in range(1, min(i + 1, 13))]) for i in range(12)
+        ],
+        "free_active": [100 * i for i in range(1, 13)],
+        "pro_active": [10 * i for i in range(1, 13)],
+        "ent_active": list(range(1, 13)),
+        "product_value": [100 + i * 2 for i in range(12)],
+        "leads_total": [50 * i for i in range(1, 13)],
+        "net_cashflow": [5000 - i * 100 for i in range(12)],
+        "market_cap": [10000 * i for i in range(1, 13)],
+        "sales_spend": [1000 + i * 50 for i in range(12)],
+        "costs_ex_tax": [800 * i for i in range(1, 13)],
+        "ads_clicks": [100 * i for i in range(1, 13)],
+        "website_leads": [30 * i for i in range(1, 13)],
+        "direct_leads": [10 * i for i in range(1, 13)],
+        "new_pro": [5 * i for i in range(1, 13)],
+        "new_ent": list(range(1, 13)),
+    })
 
 
 def test_plot_results(sample_df):

@@ -1,5 +1,7 @@
 """Centralized configuration for default assumptions."""
 
+from __future__ import annotations
+
 from .models import Assumptions
 
 # Default assumptions used across the application

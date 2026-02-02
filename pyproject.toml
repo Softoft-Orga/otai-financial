@@ -30,17 +30,60 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+# Select rules following 2025 best practices
+select = [
+    "F",      # Pyflakes rules
+    "E",      # PyCodeStyle errors
+    "W",      # PyCodeStyle warnings
+    "I",      # Sort imports properly
+    "UP",     # Warn if certain things can changed due to newer Python versions
+    "C4",     # Catch incorrect use of comprehensions, dict, list, etc
+    "FA",     # Enforce from __future__ import annotations
+    "ISC",    # Good use of string concatenation
+    "ICN",    # Use common import conventions
+    "RET",    # Good return practices
+    "SIM",    # Common simplification rules
+    "TID",    # Some good import practices
+    "TC",     # Enforce importing certain types in a TYPE_CHECKING block
+    "PTH",    # Use pathlib instead of os.path
+    "TD",     # Be diligent with TODO comments
+    "PERF",   # Performance optimizations
+    "RUF",    # Ruff-specific rules
+    "PL",     # Pylint rules (selective)
+    "NPY",    # NumPy-specific rules
+]
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements
+    "PLR0912", # Too many branches
+    "TD003",   # Missing issue link on TODO
+    "PLR2004", # Magic value in comparison
+    "RUF001",  # Ambiguous characters (like ×)
+    "PTH123",  # Use Path.open() instead of open()
+]
 fixable = ["ALL"]
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.isort]
 known-first-party = ["otai_forecast"]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.pylint]
+max-args = 10
+max-statements = 50
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["PLR2004", "S101"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
+skip-magic-trailing-comma = false
+preview = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -51,5 +94,6 @@ addopts = "-v"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.5.1",
     "ruff>=0.14.14",
 ]

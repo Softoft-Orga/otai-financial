@@ -48,9 +48,12 @@ def main():
 
     with tab_inputs:
         with st.form("assumptions_form"):
-            t_decisions, t_growth, t_finance, t_product = st.tabs(
-                ["Decisions", "Growth", "Finance", "Product Value"]
-            )
+            t_decisions, t_growth, t_finance, t_product = st.tabs([
+                "Decisions",
+                "Growth",
+                "Finance",
+                "Product Value",
+            ])
 
             with t_decisions:
                 months = st.slider(
@@ -576,22 +579,18 @@ def main():
 
         if "decisions" in st.session_state:
             st.header("🗓️ Monthly Decisions")
-            decisions_df = pd.DataFrame(
-                [
-                    {"month": i, **d.__dict__}
-                    for i, d in enumerate(st.session_state.decisions)
-                ]
-            )
+            decisions_df = pd.DataFrame([
+                {"month": i, **d.__dict__}
+                for i, d in enumerate(st.session_state.decisions)
+            ])
             st.dataframe(decisions_df, use_container_width=True)
 
         if "assumptions" in st.session_state:
             st.header("Assumptions")
-            a_tbl = pd.DataFrame(
-                [
-                    {"Parameter": k, "Value": v}
-                    for k, v in st.session_state.assumptions.__dict__.items()
-                ]
-            )
+            a_tbl = pd.DataFrame([
+                {"Parameter": k, "Value": v}
+                for k, v in st.session_state.assumptions.__dict__.items()
+            ])
             st.dataframe(a_tbl, use_container_width=True)
 
         # KPIs

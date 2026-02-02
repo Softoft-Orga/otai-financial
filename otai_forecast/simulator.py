@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .compute import run_simulation, run_simulation_rows
-from .models import Assumptions, MonthlyCalculated, MonthlyDecisions
+
+if TYPE_CHECKING:
+    from .models import Assumptions, MonthlyCalculated, MonthlyDecisions
 
 
 @dataclass

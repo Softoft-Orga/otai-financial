@@ -107,7 +107,7 @@ def plot_revenue_cashflow(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.A
         The matplotlib axis with the plot
     """
     if ax is None:
-        fig, ax = plt.subplots(figsize=(10, 6))
+        _fig, ax = plt.subplots(figsize=(10, 6))
     else:
         pass
 

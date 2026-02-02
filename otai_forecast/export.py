@@ -64,8 +64,7 @@ def export_simulation_output(
         col_letter = col[0].column_letter
         for cell in col:
             v = "" if cell.value is None else str(cell.value)
-            if len(v) > max_len:
-                max_len = len(v)
+            max_len = max(max_len, len(v))
         ws.column_dimensions[col_letter].width = min(40, max(10, max_len + 2))
 
     wb.save(out_path)
@@ -101,8 +100,7 @@ def export_detailed(
         col_letter = col[0].column_letter
         for cell in col:
             v = "" if cell.value is None else str(cell.value)
-            if len(v) > max_len:
-                max_len = len(v)
+            max_len = max(max_len, len(v))
         ws.column_dimensions[col_letter].width = min(40, max(10, max_len + 2))
 
     wb.save(out_path)
@@ -355,8 +353,7 @@ def export_nice(
             max_len = 0
             for cell in col:
                 v = "" if cell.value is None else str(cell.value)
-                if len(v) > max_len:
-                    max_len = len(v)
+                max_len = max(max_len, len(v))
             ws.column_dimensions[get_column_letter(i)].width = min(
                 42, max(10, max_len + 2)
             )

@@ -1,70 +1,94 @@
 import unittest
-from unittest.mock import Mock
 
 from otai_forecast.compute import (
-    apply_churn,
-    apply_effects,
+    calculate_new_monthly_data,
+    calculate_new_state,
     clamp,
-    compute_finance,
-    compute_leads,
-    compute_new_ent,
-    compute_new_free,
-    compute_new_pro,
-    compute_partners,
-    feature_dev_days_done,
+    run_simulation_rows,
 )
-from otai_forecast.models import (
-    Assumptions,
-    Context,
-    MonthlyInputs,
-    Roadmap,
-    State,
-)
+from otai_forecast.models import Assumptions, MonthlyDecision, State
 
 
 class TestCompute(unittest.TestCase):
     def setUp(self):
         self.a = Assumptions(
-            months=12,
-            dev_day_cost_eur=500.0,
-            starting_cash_eur=100000.0,
-            ops_fixed_eur_per_month=10000.0,
-            ads_cost_per_lead_base=2.0,
-            monthly_ads_expense=500.0,
-            brand_popularity=1.0,
+            months=3,
+            starting_cash=100_000.0,
+            base_organic_users_per_month=2_000.0,
+            cpc_eur=2.5,
+            cpc_base=2.5,
+            cpc_k=0.15,
+            cpc_ref_spend=1000.0,
+            seo_eff_users_per_eur=0.8,
+            seo_decay=0.08,
+            domain_rating_init=10.0,
+            domain_rating_max=100.0,
+            domain_rating_growth_k=0.06,
+            domain_rating_growth_ref_spend=1000.0,
+            domain_rating_decay=0.02,
+            conv_web_to_lead=0.03,
             conv_lead_to_free=0.25,
-            conv_free_to_pro=0.10,
+            conv_free_to_pro=0.08,
             conv_pro_to_ent=0.02,
             churn_free=0.15,
             churn_pro=0.03,
             churn_ent=0.01,
-            referral_leads_per_active_free=0.01,
-            partner_commission_rate=0.20,
-            pro_deals_per_partner_per_month=0.02,
-            ent_deals_per_partner_per_month=0.002,
-            new_partners_base_per_month=0.1,
-            valuation_multiple_arr=10.0,
-            credit_interest_rate_annual=0.10,
-            credit_draw_amount=50000.0,
-            credit_cash_threshold=25000.0,
+            churn_pro_floor=0.01,
+            pro_price_base=3500.0,
+            ent_price_base=20000.0,
+            pro_price_k=0.05,
+            ent_price_k=0.03,
+            tax_rate=0.25,
+            market_cap_multiple=6.0,
+            sales_cost_per_new_pro=300.0,
+            sales_cost_per_new_ent=1500.0,
+            support_cost_per_pro=50.0,
+            support_cost_per_ent=400.0,
+            operating_baseline=2000.0,
+            operating_per_user=3.0,
+            operating_per_dev=0.15,
+            qualified_pool_total=20_000.0,
+            contact_rate_per_month=0.01,
+            scraping_efficiency_k=0.5,
+            scraping_ref_spend=500.0,
+            credit_cash_threshold=0.0,
+            credit_draw_amount=0.0,
+            debt_interest_rate_base_annual=0.10,
+            debt_interest_rate_k=0.05,
+            debt_interest_rate_ref=100_000.0,
+            pv_init=100.0,
+            pv_min=30.0,
+            pv_ref=100.0,
+            pv_decay_shape=0.08,
+            pv_growth_scale=0.15,
+            k_pv_web_to_lead=0.30,
+            k_pv_lead_to_free=0.15,
+            k_pv_free_to_pro=0.25,
+            k_pv_pro_to_ent=0.20,
+            k_pv_churn_pro=0.20,
+            k_pv_churn_free=0.10,
+            k_pv_churn_ent=0.15,
         )
 
-        self.inp = MonthlyInputs(
-            ads_spend=1000.0,
-            social_spend=200.0,
-            additional_dev_days=5.0,
+        self.d = MonthlyDecision(
+            ads_spend=500.0,
+            seo_spend=300.0,
+            social_spend=150.0,
+            dev_spend=5000.0,
+            scraping_spend=0.0,
+            outreach_intensity=0.25,
         )
 
         self.state = State(
-            t=0,
-            cash=100000.0,
-            free_active=50.0,
-            pro_active=20.0,
-            ent_active=5.0,
-            partners=10.0,
+            month=0,
+            cash=self.a.starting_cash,
+            debt=0.0,
+            domain_rating=self.a.domain_rating_init,
+            product_value=self.a.pv_init,
+            free_active=0.0,
+            pro_active=0.0,
+            ent_active=0.0,
         )
-
-        self.ctx = Context(t=0, a=self.a, inp=self.inp)
 
     def test_clamp(self):
         self.assertEqual(clamp(-1.0, 0.0, 1.0), 0.0)
@@ -72,115 +96,27 @@ class TestCompute(unittest.TestCase):
         self.assertEqual(clamp(0.5, 0.0, 1.0), 0.5)
         self.assertEqual(clamp(10.0, 5.0, 15.0), 10.0)
 
-    def test_apply_effects(self):
-        # Mock feature and effect
-        mock_effect = Mock(return_value=self.ctx)
-        mock_feature = Mock()
-        mock_feature.effect = mock_effect
+    def test_calculate_new_monthly_data_smoke(self):
+        monthly = calculate_new_monthly_data(self.state, self.a, self.d)
+        self.assertEqual(monthly.month, 0)
+        self.assertGreaterEqual(monthly.website_users, 0.0)
+        self.assertGreaterEqual(monthly.leads_total, 0.0)
+        self.assertGreaterEqual(monthly.costs_ex_tax, 0.0)
 
-        roadmap = Roadmap(features=[mock_feature])
-        roadmap.active = Mock(return_value=[mock_feature])
+    def test_state_progression_matches_rows(self):
+        rows = run_simulation_rows(self.a, [self.d] * self.a.months)
+        self.assertEqual(len(rows), self.a.months)
 
-        result = apply_effects(self.ctx, roadmap)
+        # Cash in row i is end-of-month cash after applying that month's cashflow
+        cash = self.a.starting_cash
+        for r in rows:
+            cash += r["net_cashflow"]
+            self.assertAlmostEqual(r["cash"], cash, places=6)
 
-        mock_effect.assert_called_once_with(self.ctx)
-        self.assertEqual(result, self.ctx)
-
-    def test_compute_leads(self):
-        leads_total = compute_leads(self.state, self.ctx)
-
-        # Ads leads: log2(1000/2 + 1) * 2 = log2(501) * 2 ≈ 8.97 * 2 = 17.94
-        # Organic leads: 1.0^1.5 * 10 = 10
-        # Referral leads: 50 * 0.01 = 0.5
-        # Total: 17.94 + 10 + 0.5 = 28.44
-        self.assertAlmostEqual(leads_total, 28.44, places=1)
-
-    def test_compute_new_free(self):
-        leads = 28.44
-
-        result = compute_new_free(self.ctx, leads)
-
-        # Conversion: 28.44 * 0.25 = 7.11
-        self.assertAlmostEqual(result, 7.11, places=1)
-
-    def test_compute_new_pro(self):
-        new_free = 7.11
-
-        result = compute_new_pro(self.ctx, new_free)
-
-        # Conversion: 7.11 * 0.10 = 0.711
-        self.assertAlmostEqual(result, 0.711, places=2)
-
-    def test_compute_new_ent(self):
-        new_pro = 0.711
-
-        result = compute_new_ent(self.ctx, new_pro)
-
-        # Conversion: 0.711 * 0.02 = 0.01422
-        self.assertAlmostEqual(result, 0.01422, places=4)
-
-    def test_apply_churn(self):
-        churned, remaining = apply_churn(100.0, 0.15)
-        self.assertAlmostEqual(churned, 15.0)
-        self.assertAlmostEqual(remaining, 85.0)
-
-        # Test edge cases
-        churned, remaining = apply_churn(100.0, 0.0)
-        self.assertAlmostEqual(churned, 0.0)
-        self.assertAlmostEqual(remaining, 100.0)
-
-        churned, remaining = apply_churn(100.0, 1.0)
-        self.assertAlmostEqual(churned, 100.0)
-        self.assertAlmostEqual(remaining, 0.0)
-
-    def test_compute_partners(self):
-        new_partners, pro_deals, ent_deals = compute_partners(self.state, self.ctx)
-
-        # Expected: new_partners = 0.1, total_partners = 10.1
-        # pro_deals = 10.1 * 0.02 = 0.202
-        # ent_deals = 10.1 * 0.002 = 0.0202
-        self.assertAlmostEqual(new_partners, 0.1)
-        self.assertAlmostEqual(pro_deals, 0.202, places=3)
-        self.assertAlmostEqual(ent_deals, 0.0202, places=4)
-
-    def test_compute_finance(self):
-        maintenance_days = 5.0
-        feature_dev_days_done = 10.0
-        pro_price = 3500.0
-        ent_price = 20000.0
-
-        result = compute_finance(
-            self.state,
-            self.ctx,
-            pro_price,
-            ent_price,
-            maintenance_days,
-            feature_dev_days_done,
-        )
-
-        # Revenue: 20 * 3500 + 5 * 20000 = 70000 + 100000 = 170000
-        # Costs: 1000 + 200 + 10000 + 5*500 + 10*500 + 0.2*170000 = 1200 + 10000 + 2500 + 5000 + 34000 = 52700
-        # Net: 170000 - 52700 = 117300
-        self.assertAlmostEqual(result.revenue_total, 170000.0)
-        self.assertAlmostEqual(result.net_cashflow, 117300.0)
-
-    def test_feature_dev_days_done(self):
-        # Mock roadmap with features launching at t=0
-        mock_feature1 = Mock()
-        mock_feature1.dev_days = 20.0
-        mock_feature2 = Mock()
-        mock_feature2.dev_days = 15.0
-
-        roadmap = Roadmap(features=[])
-        roadmap.launches_at = Mock(return_value=[mock_feature1, mock_feature2])
-
-        maintenance_days = 5.0
-        result = feature_dev_days_done(self.ctx, roadmap, maintenance_days)
-
-        # Required: 20 + 15 = 35
-        # Available: 20 - 5 = 15
-        # Result: min(35, 15) = 15
-        self.assertEqual(result, 15.0)
+    def test_calculate_new_state_advances_month(self):
+        monthly = calculate_new_monthly_data(self.state, self.a, self.d)
+        next_state = calculate_new_state(self.state, monthly, self.a)
+        self.assertEqual(next_state.month, 1)
 
 
 if __name__ == "__main__":

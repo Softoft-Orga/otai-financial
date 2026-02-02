@@ -4,55 +4,60 @@ from .models import Assumptions
 
 # Default assumptions used across the application
 DEFAULT_ASSUMPTIONS = Assumptions(
-    # Time and costs
     months=36,
-    dev_day_cost_eur=600.0,
-    starting_cash_eur=100_000.0,
-    # Fixed costs
-    ops_fixed_eur_per_month=5_000.0,
-    # Marketing parameters
-    ads_cost_per_lead_base=2.0,
-    monthly_ads_expense=500.0,
-    brand_popularity=1.0,
-    # Conversion rates
-    conv_lead_to_free=0.25,
-    conv_free_to_pro=0.10,
-    conv_pro_to_ent=0.02,
-    # Churn rates
-    churn_free=0.15,
-    churn_pro=0.03,
-    churn_ent=0.01,
-    # Referral and partners
-    referral_leads_per_active_free=0.01,
-    partner_commission_rate=0.20,
-    pro_deals_per_partner_per_month=0.02,
-    ent_deals_per_partner_per_month=0.002,
-    new_partners_base_per_month=0.1,
-    # Financial parameters
-    valuation_multiple_arr=10.0,
-    # Credit parameters
-    credit_interest_rate_annual=0.10,
-    credit_draw_amount=100_000.0,
-    credit_cash_threshold=50_000.0,
+    starting_cash=150_000.0,
+    base_organic_users_per_month=1_000.0,
+    cpc_eur=3.0,
+    cpc_base=3.0,
+    cpc_k=0.25,
+    cpc_ref_spend=2000.0,
+    seo_eff_users_per_eur=0.25,
+    seo_decay=0.0,
+    domain_rating_init=10.0,
+    domain_rating_max=100.0,
+    domain_rating_growth_k=0.07,
+    domain_rating_growth_ref_spend=1500.0,
+    domain_rating_decay=0.01,
+    conv_web_to_lead=0.02,
+    conv_lead_to_free=0.20,
+    conv_free_to_pro=0.05,
+    conv_pro_to_ent=0.01,
+    churn_free=0.25,
+    churn_pro=0.04,
+    churn_ent=0.015,
+    churn_pro_floor=0.02,
+    pro_price_base=1500.0,
+    ent_price_base=15000.0,
+    pro_price_k=0.05,
+    ent_price_k=0.03,
+    tax_rate=0.25,
+    market_cap_multiple=6.0,
+    sales_cost_per_new_pro=500.0,
+    sales_cost_per_new_ent=3000.0,
+    support_cost_per_pro=30.0,
+    support_cost_per_ent=300.0,
+    operating_baseline=3000.0,
+    operating_per_user=5.0,
+    operating_per_dev=0.2,
+    qualified_pool_total=5_000.0,
+    contact_rate_per_month=0.02,
+    scraping_efficiency_k=0.8,
+    scraping_ref_spend=800.0,
+    credit_cash_threshold=20_000.0,
+    credit_draw_amount=50_000.0,
+    debt_interest_rate_base_annual=0.12,
+    debt_interest_rate_k=0.04,
+    debt_interest_rate_ref=100_000.0,
+    pv_init=100.0,
+    pv_min=40.0,
+    pv_ref=100.0,
+    pv_decay_shape=0.06,
+    pv_growth_scale=0.18,
+    k_pv_web_to_lead=0.30,
+    k_pv_lead_to_free=0.15,
+    k_pv_free_to_pro=0.25,
+    k_pv_pro_to_ent=0.20,
+    k_pv_churn_pro=0.20,
+    k_pv_churn_free=0.10,
+    k_pv_churn_ent=0.15,
 )
-
-# Default policy parameters (fixed, not optimized)
-DEFAULT_PRICES = {
-    "pro_price": 3500.0,
-    "ent_price": 20000.0,
-}
-
-# Default development parameters
-DEFAULT_DEV_PARAMS = {
-    "additional_dev_days": 5.0,  # Additional dev days per month for new features
-}
-
-# Default parameter ranges for optimization
-# Note: Currently optimized parameters are those in PolicyParams that are not fixed prices
-DEFAULT_OPTIMIZATION_RANGES = {
-    "ads_start": (100, 2000),
-    "ads_growth": (0.0, 0.2),
-    "ads_cap": (1000, 10000),
-    "social_baseline": (50, 500),
-    "additional_dev_days": (0, 15),  # Additional dev days for new features
-}

@@ -5,78 +5,34 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-import io
+import tempfile
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from otai_forecast.config import DEFAULT_ASSUMPTIONS, DEFAULT_DEV_PARAMS, DEFAULT_PRICES
-from otai_forecast.models import (
-    Assumptions,
-    Policy,
-    PolicyParams,
+from otai_forecast.config import DEFAULT_ASSUMPTIONS
+from otai_forecast.decision_optimizer import choose_best_decisions_by_market_cap, run_simulation_df
+from otai_forecast.export import export_detailed, export_nice, export_simulation_output
+from otai_forecast.models import Assumptions, MonthlyDecision
+from otai_forecast.plots import (
+    plot_cash_burn_rate,
+    plot_cash_position,
+    plot_conversion_funnel,
+    plot_customer_acquisition_channels,
+    plot_financial_health_score,
+    plot_ltv_cac_analysis,
+    plot_leads,
+    plot_market_cap,
+    plot_monthly_revenue,
+    plot_net_cashflow,
+    plot_product_value,
+    plot_revenue_breakdown,
+    plot_ttm_revenue,
+    plot_unit_economics,
+    plot_user_growth,
+    plot_user_growth_stacked,
 )
-from otai_forecast.optimize import PolicyOptimizer
-from otai_forecast.roadmap import create_otai_roadmap
-from otai_forecast.simulator import DetailedSimulator, Simulator
-
-
-def run_simulation(params: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run the simulation with given parameters."""
-    # Create assumptions
-    a = Assumptions(
-        months=params["months"],
-        dev_day_cost_eur=params["dev_day_cost_eur"],
-        starting_cash_eur=params["starting_cash_eur"],
-        ops_fixed_eur_per_month=params["ops_fixed_eur_per_month"],
-        ads_cost_per_lead_base=params["ads_cost_per_lead_base"],
-        monthly_ads_expense=params["monthly_ads_expense"],
-        brand_popularity=params["brand_popularity"],
-        conv_lead_to_free=params["conv_lead_to_free"],
-        conv_free_to_pro=params["conv_free_to_pro"],
-        conv_pro_to_ent=params["conv_pro_to_ent"],
-        churn_free=params["churn_free"],
-        churn_pro=params["churn_pro"],
-        churn_ent=params["churn_ent"],
-        referral_leads_per_active_free=0.01,
-        partner_commission_rate=0.20,
-        pro_deals_per_partner_per_month=0.02,
-        ent_deals_per_partner_per_month=0.002,
-        new_partners_base_per_month=0.1,
-        valuation_multiple_arr=10.0,
-        credit_interest_rate_annual=0.10,
-        credit_draw_amount=100_000.0,
-        credit_cash_threshold=50_000.0,
-    )
-
-    # Create policy
-    policy = Policy(
-        p=PolicyParams(
-            ads_start=params["ads_start"],
-            ads_growth=params["ads_growth"],
-            ads_cap=params["ads_cap"],
-            social_baseline=params["social_baseline"],
-            additional_dev_days=params.get(
-                "additional_dev_days", DEFAULT_DEV_PARAMS["additional_dev_days"]
-            ),
-            **DEFAULT_PRICES,
-        ),
-    )
-
-    # Create roadmap
-    roadmap = create_otai_roadmap()
-
-    # Run simulations
-    sim = Simulator(a=a, roadmap=roadmap, policy=policy)
-    rows = sim.run()
-    df = pd.DataFrame([r.__dict__ for r in rows])
-
-    sim_detailed = DetailedSimulator(a=a, roadmap=roadmap, policy=policy)
-    detailed_log = sim_detailed.run()
-    df_detailed = pd.DataFrame(detailed_log)
-
-    return df, df_detailed
 
 
 def main():
@@ -89,115 +45,473 @@ def main():
 
     st.title("🚀 OTAI Financial Simulation Dashboard")
 
-    # Sidebar inputs
-    st.sidebar.header("Simulation Parameters")
+    tab_inputs, tab_results = st.tabs(["Assumptions", "Results"])
 
-    # Check if we have optimized values to use
-    optimized_values = st.session_state.get("update_optimization_params", {})
-
-    # Basic parameters
-    st.sidebar.subheader("Basic Settings")
-    months = st.sidebar.slider("Simulation Period (months)", 6, 60, 24)
-    dev_day_cost_eur = st.sidebar.slider("Dev Day Cost (€)", 300, 1000, 600)
-    starting_cash_eur = st.sidebar.slider("Starting Cash (€)", 50000, 500000, 100000)
-    fixed_overhead_eur_per_month = st.sidebar.slider(
-        "Fixed Overhead (€/month)", 0, 50000, 0
-    )
-
-    # Marketing parameters
-    st.sidebar.subheader("Marketing")
-    ads_start = st.sidebar.slider(
-        "Initial Ad Spend (€/month)",
-        0,
-        5000,
-        int(optimized_values.get("ads_start", 500)),
-    )
-    ads_growth = st.sidebar.slider(
-        "Ad Growth Rate", 0.0, 0.5, optimized_values.get("ads_growth", 0.0), 0.05
-    )
-    ads_cap = st.sidebar.slider(
-        "Ad Spend Cap (€/month)",
-        1000,
-        20000,
-        int(optimized_values.get("ads_cap", 5000)),
-    )
-    social_baseline = st.sidebar.slider(
-        "Social Media Spend (€/month)",
-        0,
-        1000,
-        int(optimized_values.get("social_baseline", 150)),
-    )
-
-    # Pricing
-    st.sidebar.subheader("Pricing")
-    pro_price = st.sidebar.slider("Pro Price (€/month)", 1000, 10000, 3500)
-    ent_price = st.sidebar.slider("Enterprise Price (€/month)", 5000, 50000, 20000)
-    st.sidebar.caption("💡 Pricing is fixed and not optimized")
-
-    # Development
-    st.sidebar.subheader("Development")
-    additional_dev_days = st.sidebar.slider(
-        "Additional Dev Days (for new features)",
-        0,
-        20,
-        int(
-            optimized_values.get(
-                "additional_dev_days", DEFAULT_DEV_PARAMS["additional_dev_days"]
+    with tab_inputs:
+        with st.form("assumptions_form"):
+            t_decisions, t_growth, t_finance, t_product = st.tabs(
+                ["Decisions", "Growth", "Finance", "Product Value"]
             )
-        ),
-    )
 
-    # Conversion rates
-    st.sidebar.subheader("Conversion Rates")
-    conv_lead_to_free = st.sidebar.slider("Lead → Free", 0.1, 0.5, 0.25, 0.05)
-    conv_free_to_pro = st.sidebar.slider("Free → Pro", 0.05, 0.3, 0.10, 0.01)
-    conv_pro_to_ent = st.sidebar.slider("Pro → Ent", 0.01, 0.1, 0.02, 0.01)
+            with t_decisions:
+                months = st.slider(
+                    "Simulation Period (months)", 6, 60, int(DEFAULT_ASSUMPTIONS.months)
+                )
+                starting_cash = st.slider(
+                    "Starting Cash (€)",
+                    0,
+                    500000,
+                    int(DEFAULT_ASSUMPTIONS.starting_cash),
+                )
 
-    # Churn rates
-    st.sidebar.subheader("Churn Rates")
-    churn_free = st.sidebar.slider("Free Churn", 0.05, 0.3, 0.15, 0.01)
-    churn_pro = st.sidebar.slider("Pro Churn", 0.01, 0.1, 0.03, 0.01)
-    churn_ent = st.sidebar.slider("Ent Churn", 0.005, 0.05, 0.01, 0.005)
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    ads_spend = st.slider("Ads", 0, 50000, 500)
+                    seo_spend = st.slider("SEO", 0, 50000, 300)
+                    social_spend = st.slider("Social", 0, 50000, 150)
+                    scraping_spend = st.slider("Scraping spend", 0, 200000, 0)
+                with col_b:
+                    dev_spend = st.slider("Development", 0, 200000, 5000)
+                    outreach_intensity = st.slider(
+                        "Outreach intensity", 0.0, 1.0, 0.25, 0.05
+                    )
 
-    # Show if optimized values are being used
-    if optimized_values:
-        st.sidebar.success("✨ Using optimized parameters")
-        if st.sidebar.button("Reset to Default Values"):
-            st.session_state.pop("update_optimization_params", None)
-            st.rerun()
+                max_evals = st.number_input(
+                    "Optimization trials",
+                    min_value=1000,
+                    max_value=250000,
+                    value=2000,
+                    step=1000,
+                )
 
-    # Other default parameters
-    params = {
-        **DEFAULT_ASSUMPTIONS.__dict__,
-        "months": months,
-        "dev_day_cost_eur": dev_day_cost_eur,
-        "starting_cash_eur": starting_cash_eur,
-        "ops_fixed_eur_per_month": 5000.0,  # Fixed ops cost
-        "ads_cost_per_lead_base": 2.0,  # Base cost per lead from ads
-        "monthly_ads_expense": 500.0,  # Will be overridden by ads_start
-        "brand_popularity": 1.0,  # Starting brand popularity
-        "conv_lead_to_free": conv_lead_to_free,
-        "conv_free_to_pro": conv_free_to_pro,
-        "conv_pro_to_ent": conv_pro_to_ent,
-        "churn_free": churn_free,
-        "churn_pro": churn_pro,
-        "churn_ent": churn_ent,
-        "additional_dev_days": additional_dev_days,
-        **optimized_values,
-        **DEFAULT_PRICES,
-    }
+            with t_growth:
+                base_organic_users_per_month = st.slider(
+                    "Base organic users / month",
+                    0,
+                    50000,
+                    int(DEFAULT_ASSUMPTIONS.base_organic_users_per_month),
+                )
+                cpc_eur = st.slider(
+                    "CPC (€)", 0.0, 20.0, float(DEFAULT_ASSUMPTIONS.cpc_eur), 0.1
+                )
+                cpc_base = st.slider(
+                    "CPC base (€)",
+                    0.0,
+                    20.0,
+                    float(DEFAULT_ASSUMPTIONS.cpc_base),
+                    0.1,
+                )
+                cpc_k = st.slider(
+                    "CPC growth k", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.cpc_k), 0.05
+                )
+                cpc_ref_spend = st.slider(
+                    "CPC ref spend",
+                    1.0,
+                    20000.0,
+                    float(DEFAULT_ASSUMPTIONS.cpc_ref_spend),
+                    100.0,
+                )
+                seo_eff_users_per_eur = st.slider(
+                    "SEO effectiveness (users/€)",
+                    0.0,
+                    10.0,
+                    float(DEFAULT_ASSUMPTIONS.seo_eff_users_per_eur),
+                    0.1,
+                )
+                seo_decay = st.slider(
+                    "SEO decay", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.seo_decay), 0.01
+                )
 
-    # Run simulation button
-    if st.sidebar.button("🚀 Run Simulation", type="primary"):
-        with st.spinner("Running simulation..."):
-            df, df_detailed = run_simulation(params)
-            st.session_state.df = df
-            st.session_state.df_detailed = df_detailed
+                domain_rating_init = st.slider(
+                    "Domain rating init",
+                    0.0,
+                    100.0,
+                    float(DEFAULT_ASSUMPTIONS.domain_rating_init),
+                    1.0,
+                )
+                domain_rating_max = st.slider(
+                    "Domain rating max",
+                    1.0,
+                    200.0,
+                    float(DEFAULT_ASSUMPTIONS.domain_rating_max),
+                    1.0,
+                )
+                domain_rating_growth_k = st.slider(
+                    "Domain rating growth k",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.domain_rating_growth_k),
+                    0.01,
+                )
+                domain_rating_growth_ref_spend = st.slider(
+                    "Domain rating ref spend",
+                    1.0,
+                    100000.0,
+                    float(DEFAULT_ASSUMPTIONS.domain_rating_growth_ref_spend),
+                    100.0,
+                )
+                domain_rating_decay = st.slider(
+                    "Domain rating decay",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.domain_rating_decay),
+                    0.01,
+                )
 
-    # Display results if available
-    if "df" in st.session_state:
+                qualified_pool_total = st.slider(
+                    "Qualified pool",
+                    0,
+                    500000,
+                    int(DEFAULT_ASSUMPTIONS.qualified_pool_total),
+                    1000,
+                )
+                contact_rate_per_month = st.slider(
+                    "Contact rate / month",
+                    0.0,
+                    0.2,
+                    float(DEFAULT_ASSUMPTIONS.contact_rate_per_month),
+                    0.001,
+                )
+                scraping_efficiency_k = st.slider(
+                    "Scraping efficiency k",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.scraping_efficiency_k),
+                    0.05,
+                )
+                scraping_ref_spend = st.slider(
+                    "Scraping ref spend",
+                    1.0,
+                    5000.0,
+                    float(DEFAULT_ASSUMPTIONS.scraping_ref_spend),
+                    50.0,
+                )
+
+            with t_finance:
+                conv_web_to_lead = st.slider(
+                    "Website → Lead",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_web_to_lead),
+                    0.005,
+                )
+                conv_lead_to_free = st.slider(
+                    "Lead → Free",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_lead_to_free),
+                    0.01,
+                )
+                conv_free_to_pro = st.slider(
+                    "Free → Pro",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_free_to_pro),
+                    0.01,
+                )
+                conv_pro_to_ent = st.slider(
+                    "Pro → Ent",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_pro_to_ent),
+                    0.005,
+                )
+
+                churn_free = st.slider(
+                    "Free churn", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.churn_free), 0.01
+                )
+                churn_pro = st.slider(
+                    "Pro churn", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.churn_pro), 0.01
+                )
+                churn_ent = st.slider(
+                    "Ent churn", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.churn_ent), 0.01
+                )
+                churn_pro_floor = st.slider(
+                    "Pro churn floor",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.churn_pro_floor),
+                    0.01,
+                )
+
+                pro_price_base = st.slider(
+                    "Pro base price", 0, 20000, int(DEFAULT_ASSUMPTIONS.pro_price_base), 100
+                )
+                ent_price_base = st.slider(
+                    "Ent base price",
+                    0,
+                    100000,
+                    int(DEFAULT_ASSUMPTIONS.ent_price_base),
+                    500,
+                )
+                pro_price_k = st.slider(
+                    "Pro price elasticity",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.pro_price_k),
+                    0.01,
+                )
+                ent_price_k = st.slider(
+                    "Ent price elasticity",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.ent_price_k),
+                    0.01,
+                )
+
+                tax_rate = st.slider(
+                    "Tax rate", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.tax_rate), 0.01
+                )
+                market_cap_multiple = st.slider(
+                    "Market cap multiple (TTM revenue)",
+                    0.0,
+                    30.0,
+                    float(DEFAULT_ASSUMPTIONS.market_cap_multiple),
+                    0.5,
+                )
+
+                sales_cost_per_new_pro = st.slider(
+                    "Sales cost / new Pro",
+                    0,
+                    5000,
+                    int(DEFAULT_ASSUMPTIONS.sales_cost_per_new_pro),
+                    50,
+                )
+                sales_cost_per_new_ent = st.slider(
+                    "Sales cost / new Ent",
+                    0,
+                    20000,
+                    int(DEFAULT_ASSUMPTIONS.sales_cost_per_new_ent),
+                    100,
+                )
+                support_cost_per_pro = st.slider(
+                    "Support cost / Pro",
+                    0,
+                    1000,
+                    int(DEFAULT_ASSUMPTIONS.support_cost_per_pro),
+                    10,
+                )
+                support_cost_per_ent = st.slider(
+                    "Support cost / Ent",
+                    0,
+                    5000,
+                    int(DEFAULT_ASSUMPTIONS.support_cost_per_ent),
+                    50,
+                )
+
+                credit_cash_threshold = st.slider(
+                    "Cash threshold for credit draw",
+                    0,
+                    500000,
+                    int(DEFAULT_ASSUMPTIONS.credit_cash_threshold),
+                    1000,
+                )
+                credit_draw_amount = st.slider(
+                    "Credit draw amount",
+                    0,
+                    500000,
+                    int(DEFAULT_ASSUMPTIONS.credit_draw_amount),
+                    1000,
+                )
+                debt_interest_rate_base_annual = st.slider(
+                    "Base interest rate (annual)",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.debt_interest_rate_base_annual),
+                    0.01,
+                )
+                debt_interest_rate_k = st.slider(
+                    "Interest rate debt sensitivity",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.debt_interest_rate_k),
+                    0.01,
+                )
+                debt_interest_rate_ref = st.slider(
+                    "Interest rate reference debt",
+                    1_000,
+                    1_000_000,
+                    int(DEFAULT_ASSUMPTIONS.debt_interest_rate_ref),
+                    1000,
+                )
+
+            with t_product:
+                pv_init = st.slider(
+                    "PV init", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_init), 1.0
+                )
+                pv_min = st.slider(
+                    "PV min", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_min), 1.0
+                )
+                pv_ref = st.slider(
+                    "PV ref", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_ref), 1.0
+                )
+                pv_decay_shape = st.slider(
+                    "PV decay shape", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.pv_decay_shape), 0.01
+                )
+                pv_growth_scale = st.slider(
+                    "PV growth scale", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.pv_growth_scale), 0.01
+                )
+                k_pv_web_to_lead = st.slider(
+                    "k PV web→lead", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_web_to_lead), 0.05
+                )
+                k_pv_lead_to_free = st.slider(
+                    "k PV lead→free", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_lead_to_free), 0.05
+                )
+                k_pv_free_to_pro = st.slider(
+                    "k PV free→pro", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_free_to_pro), 0.05
+                )
+                k_pv_pro_to_ent = st.slider(
+                    "k PV pro→ent", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_pro_to_ent), 0.05
+                )
+                k_pv_churn_pro = st.slider(
+                    "k PV churn pro", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_churn_pro), 0.05
+                )
+                k_pv_churn_free = st.slider(
+                    "k PV churn free", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_churn_free), 0.05
+                )
+                k_pv_churn_ent = st.slider(
+                    "k PV churn ent", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_churn_ent), 0.05
+                )
+
+            col_run_1, col_run_2 = st.columns(2)
+            with col_run_1:
+                run_sim = st.form_submit_button("🚀 Run Simulation")
+            with col_run_2:
+                run_opt = st.form_submit_button("🧠 Run Optimization (maximize market cap)")
+
+        params = {
+            **DEFAULT_ASSUMPTIONS.__dict__,
+            "months": int(months),
+            "starting_cash": float(starting_cash),
+            "ads_spend": float(ads_spend),
+            "seo_spend": float(seo_spend),
+            "social_spend": float(social_spend),
+            "dev_spend": float(dev_spend),
+            "scraping_spend": float(scraping_spend),
+            "outreach_intensity": float(outreach_intensity),
+            "base_organic_users_per_month": float(base_organic_users_per_month),
+            "cpc_eur": float(cpc_eur),
+            "cpc_base": float(cpc_base),
+            "cpc_k": float(cpc_k),
+            "cpc_ref_spend": float(cpc_ref_spend),
+            "seo_eff_users_per_eur": float(seo_eff_users_per_eur),
+            "seo_decay": float(seo_decay),
+            "domain_rating_init": float(domain_rating_init),
+            "domain_rating_max": float(domain_rating_max),
+            "domain_rating_growth_k": float(domain_rating_growth_k),
+            "domain_rating_growth_ref_spend": float(domain_rating_growth_ref_spend),
+            "domain_rating_decay": float(domain_rating_decay),
+            "conv_web_to_lead": float(conv_web_to_lead),
+            "conv_lead_to_free": float(conv_lead_to_free),
+            "conv_free_to_pro": float(conv_free_to_pro),
+            "conv_pro_to_ent": float(conv_pro_to_ent),
+            "churn_free": float(churn_free),
+            "churn_pro": float(churn_pro),
+            "churn_ent": float(churn_ent),
+            "churn_pro_floor": float(churn_pro_floor),
+            "pro_price_base": float(pro_price_base),
+            "ent_price_base": float(ent_price_base),
+            "pro_price_k": float(pro_price_k),
+            "ent_price_k": float(ent_price_k),
+            "tax_rate": float(tax_rate),
+            "market_cap_multiple": float(market_cap_multiple),
+            "sales_cost_per_new_pro": float(sales_cost_per_new_pro),
+            "sales_cost_per_new_ent": float(sales_cost_per_new_ent),
+            "support_cost_per_pro": float(support_cost_per_pro),
+            "support_cost_per_ent": float(support_cost_per_ent),
+            "qualified_pool_total": float(qualified_pool_total),
+            "contact_rate_per_month": float(contact_rate_per_month),
+            "scraping_efficiency_k": float(scraping_efficiency_k),
+            "scraping_ref_spend": float(scraping_ref_spend),
+            "credit_cash_threshold": float(credit_cash_threshold),
+            "credit_draw_amount": float(credit_draw_amount),
+            "debt_interest_rate_base_annual": float(debt_interest_rate_base_annual),
+            "debt_interest_rate_k": float(debt_interest_rate_k),
+            "debt_interest_rate_ref": float(debt_interest_rate_ref),
+            "pv_init": float(pv_init),
+            "pv_min": float(pv_min),
+            "pv_ref": float(pv_ref),
+            "pv_decay_shape": float(pv_decay_shape),
+            "pv_growth_scale": float(pv_growth_scale),
+            "k_pv_web_to_lead": float(k_pv_web_to_lead),
+            "k_pv_lead_to_free": float(k_pv_lead_to_free),
+            "k_pv_free_to_pro": float(k_pv_free_to_pro),
+            "k_pv_pro_to_ent": float(k_pv_pro_to_ent),
+            "k_pv_churn_pro": float(k_pv_churn_pro),
+            "k_pv_churn_free": float(k_pv_churn_free),
+            "k_pv_churn_ent": float(k_pv_churn_ent),
+        }
+
+        assumption_keys = set(Assumptions.__dataclass_fields__.keys())
+        a_kwargs = {k: params[k] for k in assumption_keys}
+
+        if run_sim:
+            with st.spinner("Running simulation..."):
+                a = Assumptions(**a_kwargs)
+                decisions = [
+                    MonthlyDecision(
+                        ads_spend=params["ads_spend"],
+                        seo_spend=params["seo_spend"],
+                        social_spend=params["social_spend"],
+                        dev_spend=params["dev_spend"],
+                        scraping_spend=params["scraping_spend"],
+                        outreach_intensity=params["outreach_intensity"],
+                        pro_price_override=params.get("pro_price_override"),
+                        ent_price_override=params.get("ent_price_override"),
+                    )
+                    for _ in range(a.months)
+                ]
+                df = run_simulation_df(a, decisions)
+                st.session_state.df = df
+                st.session_state.decisions = decisions
+                st.session_state.assumptions = a
+
+        if run_opt:
+            with st.spinner("Running optimization..."):
+                a = Assumptions(**a_kwargs)
+                base_decisions = [
+                    MonthlyDecision(
+                        ads_spend=params["ads_spend"],
+                        seo_spend=params["seo_spend"],
+                        social_spend=params["social_spend"],
+                        dev_spend=params["dev_spend"],
+                        scraping_spend=params["scraping_spend"],
+                        outreach_intensity=params["outreach_intensity"],
+                        pro_price_override=params.get("pro_price_override"),
+                        ent_price_override=params.get("ent_price_override"),
+                    )
+                    for _ in range(a.months)
+                ]
+                decisions, df = choose_best_decisions_by_market_cap(
+                    a, base_decisions, max_evals=int(max_evals)
+                )
+                st.session_state.df = df
+                st.session_state.decisions = decisions
+                st.session_state.assumptions = a
+
+    with tab_results:
+        if "df" not in st.session_state:
+            st.info("Run a simulation or optimization to see results.")
+            return
+
         df = st.session_state.df
-        df_detailed = st.session_state.df_detailed
+
+        if "decisions" in st.session_state:
+            st.header("🗓️ Monthly Decisions")
+            decisions_df = pd.DataFrame(
+                [
+                    {"month": i, **d.__dict__}
+                    for i, d in enumerate(st.session_state.decisions)
+                ]
+            )
+            st.dataframe(decisions_df, use_container_width=True)
+
+        if "assumptions" in st.session_state:
+            st.header("Assumptions")
+            a_tbl = pd.DataFrame(
+                [{"Parameter": k, "Value": v} for k, v in st.session_state.assumptions.__dict__.items()]
+            )
+            st.dataframe(a_tbl, use_container_width=True)
 
         # KPIs
         st.header("📊 Key Performance Indicators")
@@ -218,8 +532,18 @@ def main():
             st.metric("End Pro/Ent", f"{int(end_pro)}/{int(end_ent)}")
 
         with col4:
-            final_market_cap = df["market_cap"].iloc[-1]
-            st.metric("Final Market Cap", f"€{final_market_cap:,.0f}")
+            end_pv = df["product_value"].iloc[-1]
+            st.metric("End Product Value", f"{end_pv:,.2f}")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            end_revenue_ttm = df["revenue_ttm"].iloc[-1]
+            st.metric("End TTM Revenue", f"€{end_revenue_ttm:,.0f}")
+
+        with col2:
+            end_market_cap = df["market_cap"].iloc[-1]
+            st.metric("End Market Cap", f"€{end_market_cap:,.0f}")
 
         # Additional KPIs
         col1, col2, col3, col4 = st.columns(4)
@@ -229,16 +553,16 @@ def main():
             st.metric("Total Revenue", f"€{total_revenue:,.0f}")
 
         with col2:
-            final_arr = df["arr"].iloc[-1]
-            st.metric("Final ARR", f"€{final_arr:,.0f}")
+            total_costs = df["costs_ex_tax"].sum()
+            st.metric("Total Costs (ex tax)", f"€{total_costs:,.0f}")
 
         with col3:
-            total_profit = df["profit_after_tax"].sum()
-            st.metric("Total Profit", f"€{total_profit:,.0f}")
+            total_profit = df["profit_bt"].sum() - df["tax"].sum()
+            st.metric("Total Profit (after tax)", f"€{total_profit:,.0f}")
 
         with col4:
-            final_debt = df["debt"].iloc[-1]
-            st.metric("Final Debt", f"€{final_debt:,.0f}")
+            total_leads = df["leads_total"].sum()
+            st.metric("Total Leads", f"{total_leads:,.0f}")
 
         # Charts
         st.header("📈 Visualizations")
@@ -248,20 +572,12 @@ def main():
 
         with col1:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["cash"], marker="o", color="purple")
-            ax.set_title("Cash Position Over Time")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Cash (€)")
-            ax.grid(True, alpha=0.3)
+            plot_cash_burn_rate(df, ax=ax)
             st.pyplot(fig)
 
         with col2:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["revenue_total"], marker="o", color="green")
-            ax.set_title("Monthly Revenue")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Revenue (€)")
-            ax.grid(True, alpha=0.3)
+            plot_monthly_revenue(df, ax=ax)
             st.pyplot(fig)
 
         # User Growth and Market Cap
@@ -269,23 +585,12 @@ def main():
 
         with col1:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["free_active"], label="Free Users", marker="o")
-            ax.plot(df["t"], df["pro_active"], label="Pro Users", marker="o")
-            ax.plot(df["t"], df["ent_active"], label="Ent Users", marker="o")
-            ax.set_title("User Growth")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Users")
-            ax.legend()
-            ax.grid(True, alpha=0.3)
+            plot_user_growth_stacked(df, ax=ax)
             st.pyplot(fig)
 
         with col2:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["market_cap"], marker="o", color="red")
-            ax.set_title("Market Cap Over Time")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Market Cap (€)")
-            ax.grid(True, alpha=0.3)
+            plot_product_value(df, ax=ax)
             st.pyplot(fig)
 
         # Leads & Traffic
@@ -293,42 +598,53 @@ def main():
 
         with col1:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["leads"], label="Total Leads", marker="o")
-            ax.set_title("Leads Over Time")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Count")
-            ax.legend()
-            ax.grid(True, alpha=0.3)
+            plot_leads(df, ax=ax)
             st.pyplot(fig)
 
         with col2:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["profit_after_tax"], marker="o", color="orange")
-            ax.set_title("Monthly Profit After Tax")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Profit (€)")
-            ax.grid(True, alpha=0.3)
+            plot_net_cashflow(df, ax=ax)
             st.pyplot(fig)
 
-        # Debt and Interest
         col1, col2 = st.columns(2)
 
         with col1:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["debt"], marker="o", color="red")
-            ax.set_title("Debt Over Time")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Debt (€)")
-            ax.grid(True, alpha=0.3)
+            plot_ttm_revenue(df, ax=ax)
             st.pyplot(fig)
 
         with col2:
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df["t"], df["interest_payment"], marker="o", color="brown")
-            ax.set_title("Monthly Interest Payments")
-            ax.set_xlabel("Month")
-            ax.set_ylabel("Interest (€)")
-            ax.grid(True, alpha=0.3)
+            plot_market_cap(df, ax=ax)
+            st.pyplot(fig)
+
+        # Enhanced Analytics
+        st.header("🎯 Enhanced Analytics")
+        
+        # First row of enhanced plots
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            plot_ltv_cac_analysis(df, ax=ax)
+            st.pyplot(fig)
+            
+        with col2:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            plot_unit_economics(df, ax=ax)
+            st.pyplot(fig)
+        
+        # Second row of enhanced plots
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            plot_conversion_funnel(df, ax=ax)
+            st.pyplot(fig)
+            
+        with col2:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            plot_financial_health_score(df, ax=ax)
             st.pyplot(fig)
 
         # Tables
@@ -339,157 +655,72 @@ def main():
         st.dataframe(
             df[
                 [
-                    "t",
+                    "month",
                     "cash",
                     "debt",
+                    "domain_rating",
                     "free_active",
                     "pro_active",
                     "ent_active",
                     "revenue_total",
+                    "costs_ex_tax",
+                    "tax",
                     "net_cashflow",
-                    "interest_payment",
                 ]
             ].round(2),
             use_container_width=True,
         )
 
-        # Finance breakdown (from detailed simulation)
-        st.subheader("Finance Breakdown")
-        finance_cols = [
-            "month",
-            "revenue",
-            "cost_ads",
-            "cost_social",
-            "cost_ops",
-            "cost_dev_maint",
-            "cost_dev_feat",
-            "cost_partners",
-            "total_costs",
-            "net_cashflow",
-        ]
-        st.dataframe(df_detailed[finance_cols].round(2), use_container_width=True)
+        st.subheader("Monthly Full (all columns)")
+        st.dataframe(df.round(2), use_container_width=True)
 
         # Export button
         st.header("💾 Export Results")
 
         col1, col2, col3 = st.columns(3)
 
-        with col1:
-            # Create Excel files in memory
-            overview_excel = io.BytesIO()
-            with pd.ExcelWriter(overview_excel, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="Overview")
-            overview_excel.seek(0)
+        a = st.session_state.get("assumptions")
+        decisions = st.session_state.get("decisions")
 
+        with tempfile.TemporaryDirectory() as td:
+            out_path_output = str(Path(td) / "OTAI_Simulation_Output.xlsx")
+            out_path_detailed = str(Path(td) / "OTAI_Simulation_Detailed.xlsx")
+            out_path_nice = str(Path(td) / "OTAI_Simulation_Nice.xlsx")
+
+            export_simulation_output(df, out_path=out_path_output, assumptions=a, monthly_decisions=decisions)
+            export_detailed(df, out_path=out_path_detailed, assumptions=a, monthly_decisions=decisions)
+            export_nice(df, out_path=out_path_nice, assumptions=a, monthly_decisions=decisions)
+
+            with open(out_path_output, "rb") as f:
+                b_output = f.read()
+            with open(out_path_detailed, "rb") as f:
+                b_detailed = f.read()
+            with open(out_path_nice, "rb") as f:
+                b_nice = f.read()
+
+        with col1:
             st.download_button(
-                label="📊 Download Overview",
-                data=overview_excel.getvalue(),
-                file_name="OTAI_Overview.xlsx",
+                label="📄 Download Output",
+                data=b_output,
+                file_name="OTAI_Simulation_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
         with col2:
-            detailed_excel = io.BytesIO()
-            with pd.ExcelWriter(detailed_excel, engine="openpyxl") as writer:
-                df_detailed.to_excel(writer, index=False, sheet_name="Detailed")
-            detailed_excel.seek(0)
-
             st.download_button(
-                label="📈 Download Detailed",
-                data=detailed_excel.getvalue(),
-                file_name="OTAI_Detailed.xlsx",
+                label="🧾 Download Detailed",
+                data=b_detailed,
+                file_name="OTAI_Simulation_Detailed.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
         with col3:
-            # Combined export
-            combined_excel = io.BytesIO()
-            with pd.ExcelWriter(combined_excel, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="Overview")
-                df_detailed.to_excel(writer, index=False, sheet_name="Detailed")
-            combined_excel.seek(0)
-
             st.download_button(
-                label="📚 Download Combined",
-                data=combined_excel.getvalue(),
-                file_name="OTAI_Simulation_Results.xlsx",
+                label="✨ Download Nice",
+                data=b_nice,
+                file_name="OTAI_Simulation_Nice.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-
-    # Optimization section
-    st.header("🎯 Parameter Optimization")
-
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        st.subheader("Optimize Policy Parameters")
-        st.write("Objective: Maximize Final Market Cap (while avoiding negative cash)")
-
-        n_iterations = st.slider("Number of Iterations", 10, 100, 50)
-
-        if st.button("🚀 Run Optimization", type="primary"):
-            with st.spinner("Running optimization..."):
-                # Create assumptions and roadmap
-                a = DEFAULT_ASSUMPTIONS
-
-                roadmap = create_otai_roadmap()
-
-                # Create optimizer
-                optimizer = PolicyOptimizer(
-                    assumptions=a,
-                    roadmap=roadmap,
-                )
-
-                # Run optimization
-                result = optimizer.optimize(n_iterations=n_iterations)
-
-                # Store results
-                st.session_state.optimization_result = result
-
-                # Update sidebar parameters to best values
-                best = result.best_params
-                st.session_state.update_optimization_params = {
-                    "ads_start": best.ads_start,
-                    "ads_growth": best.ads_growth,
-                    "ads_cap": best.ads_cap,
-                    "social_baseline": best.social_baseline,
-                    "additional_dev_days": best.additional_dev_days,
-                    # Note: pro_price and ent_price are fixed and not optimized
-                }
-                st.success(
-                    "✅ Optimization complete! Parameters updated to best values."
-                )
-
-                # Auto-run simulation with optimized parameters
-                optimized_params = {
-                    **DEFAULT_ASSUMPTIONS.__dict__,
-                    **st.session_state.update_optimization_params,
-                    **DEFAULT_PRICES,
-                }
-
-                df, df_detailed = run_simulation(optimized_params)
-                st.session_state.df = df
-                st.session_state.df_detailed = df_detailed
-                st.rerun()
-
-    # Display optimization results if available
-    if "optimization_result" in st.session_state:
-        result = st.session_state.optimization_result
-
-        with col2:
-            st.subheader("Best Result")
-            st.metric("Best Market Cap", f"€{result.best_score:,.2f}")
-
-            st.subheader("Optimal Parameters")
-            st.write(f"**Ad Start:** €{result.best_params.ads_start:,.2f}")
-            st.write(f"**Ad Growth:** {result.best_params.ads_growth:.1%}")
-            st.write(f"**Ad Cap:** €{result.best_params.ads_cap:,.2f}")
-            st.write(f"**Social Baseline:** €{result.best_params.social_baseline:,.2f}")
-            st.write(
-                f"**Additional Dev Days:** {result.best_params.additional_dev_days:.1f} days/month"
-            )
-            st.write(f"**Pro Price:** €{result.best_params.pro_price:,.2f} (fixed)")
-            st.write(f"**Ent Price:** €{result.best_params.ent_price:,.2f} (fixed)")
 
 
 if __name__ == "__main__":

@@ -1,16 +1,58 @@
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
+from typing import Any
+
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
+def _maybe_asdict(x: Any) -> Any:
+    return asdict(x) if is_dataclass(x) else x
+
+
+def _assumptions_df(assumptions: Any | None) -> pd.DataFrame | None:
+    if assumptions is None:
+        return None
+    a = _maybe_asdict(assumptions)
+    if not isinstance(a, dict):
+        return None
+    return pd.DataFrame(
+        [{"Parameter": k, "Value": v} for k, v in a.items()], columns=["Parameter", "Value"]
+    )
+
+
+def _decisions_df(monthly_decisions: Any | None) -> pd.DataFrame | None:
+    if monthly_decisions is None:
+        return None
+    if not isinstance(monthly_decisions, list):
+        return None
+    rows: list[dict] = []
+    for i, d in enumerate(monthly_decisions):
+        dd = _maybe_asdict(d)
+        if isinstance(dd, dict):
+            rows.append({"month": i, **dd})
+    return pd.DataFrame(rows) if rows else None
+
+
 def export_simulation_output(
-    rows: list[dict] | pd.DataFrame, out_path: str = "OTAI_Simulation_Output.xlsx"
+    rows: list[dict] | pd.DataFrame,
+    out_path: str = "OTAI_Simulation_Output.xlsx",
+    assumptions: Any | None = None,
+    monthly_decisions: Any | None = None,
 ) -> str:
     df = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(rows)
-    df.to_excel(out_path, index=False, sheet_name="simulation")
+    df_a = _assumptions_df(assumptions)
+    df_d = _decisions_df(monthly_decisions)
+
+    with pd.ExcelWriter(out_path, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="simulation")
+        if df_a is not None:
+            df_a.to_excel(w, index=False, sheet_name="assumptions")
+        if df_d is not None:
+            df_d.to_excel(w, index=False, sheet_name="monthly_decisions")
 
     wb = load_workbook(out_path)
     ws = wb["simulation"]
@@ -32,13 +74,23 @@ def export_simulation_output(
 def export_detailed(
     detailed_log: list[dict] | pd.DataFrame,
     out_path: str = "OTAI_Simulation_Detailed.xlsx",
+    assumptions: Any | None = None,
+    monthly_decisions: Any | None = None,
 ) -> str:
     df = (
         detailed_log
         if isinstance(detailed_log, pd.DataFrame)
         else pd.DataFrame(detailed_log)
     )
-    df.to_excel(out_path, index=False)
+    df_a = _assumptions_df(assumptions)
+    df_d = _decisions_df(monthly_decisions)
+
+    with pd.ExcelWriter(out_path, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="monthly")
+        if df_a is not None:
+            df_a.to_excel(w, index=False, sheet_name="assumptions")
+        if df_d is not None:
+            df_d.to_excel(w, index=False, sheet_name="monthly_decisions")
 
     wb = load_workbook(out_path)
     ws = wb.active
@@ -57,7 +109,10 @@ def export_detailed(
 
 
 def export_nice(
-    detailed_log: list[dict] | pd.DataFrame, out_path: str = "OTAI_Simulation_Nice.xlsx"
+    detailed_log: list[dict] | pd.DataFrame,
+    out_path: str = "OTAI_Simulation_Nice.xlsx",
+    assumptions: Any | None = None,
+    monthly_decisions: Any | None = None,
 ) -> str:
     df = (
         detailed_log
@@ -68,10 +123,13 @@ def export_nice(
     overview_cols = [
         "month",
         "cash",
-        "revenue",
-        "total_costs",
+        "debt",
+        "revenue_total",
+        "costs_ex_tax",
+        "tax",
         "net_cashflow",
         "website_users",
+        "domain_rating",
         "leads_total",
         "new_free",
         "new_pro",
@@ -79,51 +137,39 @@ def export_nice(
         "free_active",
         "pro_active",
         "ent_active",
-        "connector_count",
-        "partners_active",
+        "product_value",
     ]
-
-    reach_cols = [
-        "month",
-        "reach_share",
-        "eff_total_market",
-        "penetration",
-        "friction_mult",
-    ]
-
-    reach_weight_cols = [c for c in df.columns if c.endswith("_weight")]
-    if not reach_weight_cols:
-        reach_weight_cols = [c for c in df.columns if c.startswith("weight_")]
-    reach_cols = reach_cols + reach_weight_cols
 
     finance_cols = [
         "month",
-        "revenue",
-        "cost_ads",
-        "cost_seo",
-        "cost_social",
-        "cost_overhead",
-        "cost_dev_maint",
-        "cost_dev_feat",
-        "cost_partners",
-        "total_costs",
+        "revenue_pro",
+        "revenue_ent",
+        "revenue_total",
+        "interest_payment",
+        "costs_ex_tax",
+        "profit_bt",
+        "tax",
         "net_cashflow",
         "cash",
+        "debt",
     ]
 
     acq_cols = [
         "month",
         "ads_spend",
         "seo_spend",
-        "pro_price",
+        "social_spend",
+        "dev_spend",
+        "operating_spend",
+        "scraping_spend",
+        "ads_clicks",
+        "domain_rating",
         "seo_stock_users",
         "website_users",
         "website_leads",
-        "referral_leads",
-        "base_leads_hq",
-        "base_leads_lq",
-        "leads_hq",
-        "leads_lq",
+        "outreach_leads",
+        "scraping_leads",
+        "direct_leads",
         "leads_total",
     ]
 
@@ -140,24 +186,30 @@ def export_nice(
         "ent_active",
     ]
 
-    partners_cols = [
+    product_cols = [
         "month",
-        "connector_count",
-        "new_partners",
-        "partner_pro_deals",
-        "partner_ent_deals",
-        "partners_active",
+        "product_value",
+        "pv_norm",
+        "pro_price",
+        "ent_price",
+        "conv_web_to_lead_eff",
+        "conv_lead_to_free_eff",
+        "conv_free_to_pro_eff",
+        "conv_pro_to_ent_eff",
+        "churn_pro_eff",
     ]
 
     def pick(cols: list[str]) -> pd.DataFrame:
         return df[[c for c in cols if c in df.columns]].copy()
 
     df_overview = pick(overview_cols)
-    df_reach = pick(reach_cols)
     df_finance = pick(finance_cols)
     df_acq = pick(acq_cols)
     df_funnel = pick(funnel_cols)
-    df_partners = pick(partners_cols)
+    df_product = pick(product_cols)
+
+    df_a = _assumptions_df(assumptions)
+    df_d = _decisions_df(monthly_decisions)
 
     def first_neg_month(series_month: pd.Series, series_cash: pd.Series):
         m = series_month[series_cash < 0]
@@ -177,6 +229,10 @@ def export_nice(
             float(df["cash"].iloc[-1]) if "cash" in df.columns and len(df) else None,
         ),
         (
+            "Ending debt (€)",
+            float(df["debt"].iloc[-1]) if "debt" in df.columns and len(df) else None,
+        ),
+        (
             "Min cash (€)",
             float(df["cash"].min()) if "cash" in df.columns and len(df) else None,
         ),
@@ -194,12 +250,30 @@ def export_nice(
         ),
         (
             "Total revenue (€)",
-            float(df["revenue"].sum()) if "revenue" in df.columns and len(df) else None,
+            float(df["revenue_total"].sum())
+            if "revenue_total" in df.columns and len(df)
+            else None,
         ),
         (
             "Avg revenue last 3 months (€)",
-            float(df["revenue"].tail(3).mean())
-            if "revenue" in df.columns and len(df) >= 3
+            float(df["revenue_total"].tail(3).mean())
+            if "revenue_total" in df.columns and len(df) >= 3
+            else None,
+        ),
+        (
+            "Total costs ex tax (€)",
+            float(df["costs_ex_tax"].sum())
+            if "costs_ex_tax" in df.columns and len(df)
+            else None,
+        ),
+        (
+            "Total tax (€)",
+            float(df["tax"].sum()) if "tax" in df.columns and len(df) else None,
+        ),
+        (
+            "Total profit after tax (€)",
+            float((df["profit_bt"] - df["tax"]).sum())
+            if "profit_bt" in df.columns and "tax" in df.columns and len(df)
             else None,
         ),
         (
@@ -222,32 +296,26 @@ def export_nice(
         ),
         (
             "Total Ads spend (€)",
-            float(df["cost_ads"].sum())
-            if "cost_ads" in df.columns and len(df)
+            float(df["ads_spend"].sum())
+            if "ads_spend" in df.columns and len(df)
             else None,
         ),
         (
             "Total SEO spend (€)",
-            float(df["cost_seo"].sum())
-            if "cost_seo" in df.columns and len(df)
+            float(df["seo_spend"].sum())
+            if "seo_spend" in df.columns and len(df)
             else None,
         ),
         (
             "Total Social spend (€)",
-            float(df["cost_social"].sum())
-            if "cost_social" in df.columns and len(df)
+            float(df["social_spend"].sum())
+            if "social_spend" in df.columns and len(df)
             else None,
         ),
         (
-            "End connectors",
-            float(df["connector_count"].iloc[-1])
-            if "connector_count" in df.columns and len(df)
-            else None,
-        ),
-        (
-            "End partners",
-            float(df["partners_active"].iloc[-1])
-            if "partners_active" in df.columns and len(df)
+            "Total Scraping spend (€)",
+            float(df["scraping_spend"].sum())
+            if "scraping_spend" in df.columns and len(df)
             else None,
         ),
     ]
@@ -259,8 +327,11 @@ def export_nice(
         df_finance.to_excel(w, index=False, sheet_name="Finance")
         df_acq.to_excel(w, index=False, sheet_name="Acquisition")
         df_funnel.to_excel(w, index=False, sheet_name="Funnel")
-        df_partners.to_excel(w, index=False, sheet_name="Partners")
-        df_reach.to_excel(w, index=False, sheet_name="Reach")
+        df_product.to_excel(w, index=False, sheet_name="Product")
+        if df_a is not None:
+            df_a.to_excel(w, index=False, sheet_name="Assumptions")
+        if df_d is not None:
+            df_d.to_excel(w, index=False, sheet_name="Monthly_Decisions")
         df.to_excel(w, index=False, sheet_name="Monthly_Full")
 
     wb = load_workbook(out_path)
@@ -302,23 +373,30 @@ def export_nice(
         "Finance",
         "Acquisition",
         "Funnel",
-        "Partners",
-        "Reach",
+        "Product",
+        "Monthly_Decisions",
         "Monthly_Full",
     ]:
         ws = wb[name]
         for col_name in [
             "cash",
-            "revenue",
-            "total_costs",
+            "debt",
+            "revenue_total",
+            "costs_ex_tax",
             "net_cashflow",
-            "cost_ads",
-            "cost_seo",
-            "cost_social",
-            "cost_overhead",
-            "cost_dev_maint",
-            "cost_dev_feat",
-            "cost_partners",
+            "tax",
+            "profit_bt",
+            "revenue_pro",
+            "revenue_ent",
+            "ads_spend",
+            "seo_spend",
+            "social_spend",
+            "dev_spend",
+            "operating_spend",
+            "scraping_spend",
+            "sales_spend",
+            "support_spend",
+            "interest_payment",
         ]:
             idx = None
             for j in range(1, ws.max_column + 1):
@@ -328,25 +406,6 @@ def export_nice(
             if idx:
                 for r in range(2, ws.max_row + 1):
                     ws.cell(row=r, column=idx).number_format = '#,##0.00" €"'
-
-    for name in [
-        "Dashboard_Overview",
-        "Acquisition",
-        "Funnel",
-        "Partners",
-        "Reach",
-        "Monthly_Full",
-    ]:
-        ws = wb[name]
-        for col_name in ["reach_share", "penetration", "friction_mult"]:
-            idx = None
-            for j in range(1, ws.max_column + 1):
-                if ws.cell(row=1, column=j).value == col_name:
-                    idx = j
-                    break
-            if idx:
-                for r in range(2, ws.max_row + 1):
-                    ws.cell(row=r, column=idx).number_format = "0.00%"
 
     wb.save(out_path)
     return out_path

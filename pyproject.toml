@@ -1,51 +1,50 @@
 [project]
 name = "otai-financials"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.14"
+description = "OTAI Financial Forecasting System"
+requires-python = ">=3.13"
 dependencies = [
     "matplotlib>=3.10.8",
     "openpyxl>=3.1.5",
-    "pandas>=2.0.0,<3.0.0",
-    "pandas-stubs~=2.3.3",
-    "streamlit>=1.40.0",
+    "pandas>=3.0.0",
+    "pandas-stubs>=2.3.3",
+    "seaborn>=0.13.2",
+    "streamlit>=1.53.1",
+    "streamlit-javascript>=0.1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.9.0",
-    "pre-commit>=4.0.0",
+    "pre-commit>=4.5.1",
+    "ruff>=0.14.14",
 ]
 
 [tool.ruff]
 line-length = 88
-target-version = "py314"
+target-version = "py313"
+extend-exclude = [
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "data",
+]
 
 [tool.ruff.lint]
-select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "B",  # flake8-bugbear
-    "C4", # flake8-comprehensions
-    "UP", # pyupgrade
-]
-ignore = [
-    "E501",  # line too long, handled by formatter
-    "B008",  # do not perform function calls in argument defaults
-    "F841",  # local variable is assigned to but never used (common in UI code)
-    "B007",  # loop control variable not used within loop body
-]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["otai_forecast"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[dependency-groups]
-dev = [
-    "pre-commit>=4.5.1",
-    "ruff>=0.14.14",
-]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v"

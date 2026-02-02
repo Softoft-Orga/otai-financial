@@ -20,7 +20,8 @@ def _assumptions_df(assumptions: Any | None) -> pd.DataFrame | None:
     if not isinstance(a, dict):
         return None
     return pd.DataFrame(
-        [{"Parameter": k, "Value": v} for k, v in a.items()], columns=["Parameter", "Value"]
+        [{"Parameter": k, "Value": v} for k, v in a.items()],
+        columns=["Parameter", "Value"],
     )
 
 
@@ -161,14 +162,13 @@ def export_nice(
         "social_spend",
         "dev_spend",
         "operating_spend",
-        "scraping_spend",
+        "direct_candidate_outreach_spend",
         "ads_clicks",
         "domain_rating",
         "seo_stock_users",
         "website_users",
         "website_leads",
         "outreach_leads",
-        "scraping_leads",
         "direct_leads",
         "leads_total",
     ]
@@ -193,9 +193,14 @@ def export_nice(
         "pro_price",
         "ent_price",
         "conv_web_to_lead_eff",
-        "conv_lead_to_free_eff",
-        "conv_free_to_pro_eff",
-        "conv_pro_to_ent_eff",
+        "conv_website_lead_to_free_eff",
+        "conv_website_lead_to_pro_eff",
+        "conv_website_lead_to_ent_eff",
+        "conv_outreach_lead_to_free_eff",
+        "conv_outreach_lead_to_pro_eff",
+        "conv_outreach_lead_to_ent_eff",
+        "upgrade_free_to_pro_eff",
+        "upgrade_pro_to_ent_eff",
         "churn_pro_eff",
     ]
 
@@ -313,9 +318,9 @@ def export_nice(
             else None,
         ),
         (
-            "Total Scraping spend (€)",
-            float(df["scraping_spend"].sum())
-            if "scraping_spend" in df.columns and len(df)
+            "Total Direct outreach spend (€)",
+            float(df["direct_candidate_outreach_spend"].sum())
+            if "direct_candidate_outreach_spend" in df.columns and len(df)
             else None,
         ),
     ]
@@ -393,7 +398,7 @@ def export_nice(
             "social_spend",
             "dev_spend",
             "operating_spend",
-            "scraping_spend",
+            "direct_candidate_outreach_spend",
             "sales_spend",
             "support_spend",
             "interest_payment",

@@ -43,10 +43,10 @@ def scale_decisions_time_ramp(
     seo_end: float,
     dev_start: float,
     dev_end: float,
-    scraping_start: float,
-    scraping_end: float,
-    outreach_start: float,
-    outreach_end: float,
+    partner_start: float,
+    partner_end: float,
+    direct_outreach_start: float,
+    direct_outreach_end: float,
 ) -> list[MonthlyDecision]:
     out: list[MonthlyDecision] = []
     months = len(decisions)
@@ -54,8 +54,10 @@ def scale_decisions_time_ramp(
         ads_mult = _time_mult(ads_start, ads_end, i, months)
         seo_mult = _time_mult(seo_start, seo_end, i, months)
         dev_mult = _time_mult(dev_start, dev_end, i, months)
-        scraping_mult = _time_mult(scraping_start, scraping_end, i, months)
-        outreach_mult = _time_mult(outreach_start, outreach_end, i, months)
+        partner_mult = _time_mult(partner_start, partner_end, i, months)
+        direct_outreach_mult = _time_mult(
+            direct_outreach_start, direct_outreach_end, i, months
+        )
 
         out.append(
             MonthlyDecision(
@@ -63,8 +65,10 @@ def scale_decisions_time_ramp(
                 seo_spend=max(0.0, d.seo_spend * seo_mult),
                 social_spend=d.social_spend,
                 dev_spend=max(0.0, d.dev_spend * dev_mult),
-                scraping_spend=max(0.0, d.scraping_spend * scraping_mult),
-                outreach_intensity=max(0.0, min(1.0, d.outreach_intensity * outreach_mult)),
+                partner_spend=max(0.0, d.partner_spend * partner_mult),
+                direct_candidate_outreach_spend=max(
+                    0.0, d.direct_candidate_outreach_spend * direct_outreach_mult
+                ),
                 pro_price_override=d.pro_price_override,
                 ent_price_override=d.ent_price_override,
             )
@@ -92,10 +96,10 @@ def choose_best_decisions_by_market_cap(
         seo_end = rng.uniform(0.0, 3.0)
         dev_start = rng.uniform(0.5, 1.5)
         dev_end = rng.uniform(0.5, 1.5)
-        scraping_start = rng.uniform(0.0, 3.0)
-        scraping_end = rng.uniform(0.0, 3.0)
-        outreach_start = rng.uniform(0.75, 1.25)
-        outreach_end = rng.uniform(0.75, 1.25)
+        partner_start = rng.uniform(0.0, 3.0)
+        partner_end = rng.uniform(0.0, 3.0)
+        direct_outreach_start = rng.uniform(0.0, 3.0)
+        direct_outreach_end = rng.uniform(0.0, 3.0)
 
         decisions = scale_decisions_time_ramp(
             base,
@@ -105,10 +109,10 @@ def choose_best_decisions_by_market_cap(
             seo_end=seo_end,
             dev_start=dev_start,
             dev_end=dev_end,
-            scraping_start=scraping_start,
-            scraping_end=scraping_end,
-            outreach_start=outreach_start,
-            outreach_end=outreach_end,
+            partner_start=partner_start,
+            partner_end=partner_end,
+            direct_outreach_start=direct_outreach_start,
+            direct_outreach_end=direct_outreach_end,
         )
 
         df = run_simulation_df(a, decisions)

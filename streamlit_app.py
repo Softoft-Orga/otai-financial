@@ -12,25 +12,24 @@ import pandas as pd
 import streamlit as st
 
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
-from otai_forecast.decision_optimizer import choose_best_decisions_by_market_cap, run_simulation_df
+from otai_forecast.decision_optimizer import (
+    choose_best_decisions_by_market_cap,
+    run_simulation_df,
+)
 from otai_forecast.export import export_detailed, export_nice, export_simulation_output
 from otai_forecast.models import Assumptions, MonthlyDecision
 from otai_forecast.plots import (
     plot_cash_burn_rate,
-    plot_cash_position,
     plot_conversion_funnel,
-    plot_customer_acquisition_channels,
     plot_financial_health_score,
-    plot_ltv_cac_analysis,
     plot_leads,
+    plot_ltv_cac_analysis,
     plot_market_cap,
     plot_monthly_revenue,
     plot_net_cashflow,
     plot_product_value,
-    plot_revenue_breakdown,
     plot_ttm_revenue,
     plot_unit_economics,
-    plot_user_growth,
     plot_user_growth_stacked,
 )
 
@@ -69,12 +68,12 @@ def main():
                     ads_spend = st.slider("Ads", 0, 50000, 500)
                     seo_spend = st.slider("SEO", 0, 50000, 300)
                     social_spend = st.slider("Social", 0, 50000, 150)
-                    scraping_spend = st.slider("Scraping spend", 0, 200000, 0)
+                    direct_candidate_outreach_spend = st.slider(
+                        "Direct candidate outreach spend", 0, 200000, 0
+                    )
                 with col_b:
                     dev_spend = st.slider("Development", 0, 200000, 5000)
-                    outreach_intensity = st.slider(
-                        "Outreach intensity", 0.0, 1.0, 0.25, 0.05
-                    )
+                    partner_spend = st.slider("Partner spend", 0, 200000, 0)
 
                 max_evals = st.number_input(
                     "Optimization trials",
@@ -165,13 +164,6 @@ def main():
                     int(DEFAULT_ASSUMPTIONS.qualified_pool_total),
                     1000,
                 )
-                contact_rate_per_month = st.slider(
-                    "Contact rate / month",
-                    0.0,
-                    0.2,
-                    float(DEFAULT_ASSUMPTIONS.contact_rate_per_month),
-                    0.001,
-                )
                 scraping_efficiency_k = st.slider(
                     "Scraping efficiency k",
                     0.0,
@@ -195,12 +187,48 @@ def main():
                     float(DEFAULT_ASSUMPTIONS.conv_web_to_lead),
                     0.005,
                 )
-                conv_lead_to_free = st.slider(
-                    "Lead → Free",
+                conv_website_lead_to_free = st.slider(
+                    "Website lead → Free",
                     0.0,
                     1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_lead_to_free),
+                    float(DEFAULT_ASSUMPTIONS.conv_website_lead_to_free),
                     0.01,
+                )
+                conv_website_lead_to_pro = st.slider(
+                    "Website lead → Pro",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_website_lead_to_pro),
+                    0.01,
+                )
+                conv_website_lead_to_ent = st.slider(
+                    "Website lead → Ent",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_website_lead_to_ent),
+                    0.001,
+                )
+
+                conv_outreach_lead_to_free = st.slider(
+                    "Outreach lead → Free",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_outreach_lead_to_free),
+                    0.01,
+                )
+                conv_outreach_lead_to_pro = st.slider(
+                    "Outreach lead → Pro",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_outreach_lead_to_pro),
+                    0.01,
+                )
+                conv_outreach_lead_to_ent = st.slider(
+                    "Outreach lead → Ent",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.conv_outreach_lead_to_ent),
+                    0.001,
                 )
                 conv_free_to_pro = st.slider(
                     "Free → Pro",
@@ -235,7 +263,11 @@ def main():
                 )
 
                 pro_price_base = st.slider(
-                    "Pro base price", 0, 20000, int(DEFAULT_ASSUMPTIONS.pro_price_base), 100
+                    "Pro base price",
+                    0,
+                    20000,
+                    int(DEFAULT_ASSUMPTIONS.pro_price_base),
+                    100,
                 )
                 ent_price_base = st.slider(
                     "Ent base price",
@@ -346,38 +378,76 @@ def main():
                     "PV ref", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_ref), 1.0
                 )
                 pv_decay_shape = st.slider(
-                    "PV decay shape", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.pv_decay_shape), 0.01
+                    "PV decay shape",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.pv_decay_shape),
+                    0.01,
                 )
                 pv_growth_scale = st.slider(
-                    "PV growth scale", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.pv_growth_scale), 0.01
+                    "PV growth scale",
+                    0.0,
+                    1.0,
+                    float(DEFAULT_ASSUMPTIONS.pv_growth_scale),
+                    0.01,
                 )
                 k_pv_web_to_lead = st.slider(
-                    "k PV web→lead", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_web_to_lead), 0.05
+                    "k PV web→lead",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_web_to_lead),
+                    0.05,
                 )
                 k_pv_lead_to_free = st.slider(
-                    "k PV lead→free", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_lead_to_free), 0.05
+                    "k PV lead→free",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_lead_to_free),
+                    0.05,
                 )
                 k_pv_free_to_pro = st.slider(
-                    "k PV free→pro", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_free_to_pro), 0.05
+                    "k PV free→pro",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_free_to_pro),
+                    0.05,
                 )
                 k_pv_pro_to_ent = st.slider(
-                    "k PV pro→ent", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_pro_to_ent), 0.05
+                    "k PV pro→ent",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_pro_to_ent),
+                    0.05,
                 )
                 k_pv_churn_pro = st.slider(
-                    "k PV churn pro", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_churn_pro), 0.05
+                    "k PV churn pro",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_churn_pro),
+                    0.05,
                 )
                 k_pv_churn_free = st.slider(
-                    "k PV churn free", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_churn_free), 0.05
+                    "k PV churn free",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_churn_free),
+                    0.05,
                 )
                 k_pv_churn_ent = st.slider(
-                    "k PV churn ent", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.k_pv_churn_ent), 0.05
+                    "k PV churn ent",
+                    0.0,
+                    2.0,
+                    float(DEFAULT_ASSUMPTIONS.k_pv_churn_ent),
+                    0.05,
                 )
 
             col_run_1, col_run_2 = st.columns(2)
             with col_run_1:
                 run_sim = st.form_submit_button("🚀 Run Simulation")
             with col_run_2:
-                run_opt = st.form_submit_button("🧠 Run Optimization (maximize market cap)")
+                run_opt = st.form_submit_button(
+                    "🧠 Run Optimization (maximize market cap)"
+                )
 
         params = {
             **DEFAULT_ASSUMPTIONS.__dict__,
@@ -387,8 +457,8 @@ def main():
             "seo_spend": float(seo_spend),
             "social_spend": float(social_spend),
             "dev_spend": float(dev_spend),
-            "scraping_spend": float(scraping_spend),
-            "outreach_intensity": float(outreach_intensity),
+            "partner_spend": float(partner_spend),
+            "direct_candidate_outreach_spend": float(direct_candidate_outreach_spend),
             "base_organic_users_per_month": float(base_organic_users_per_month),
             "cpc_eur": float(cpc_eur),
             "cpc_base": float(cpc_base),
@@ -402,7 +472,12 @@ def main():
             "domain_rating_growth_ref_spend": float(domain_rating_growth_ref_spend),
             "domain_rating_decay": float(domain_rating_decay),
             "conv_web_to_lead": float(conv_web_to_lead),
-            "conv_lead_to_free": float(conv_lead_to_free),
+            "conv_website_lead_to_free": float(conv_website_lead_to_free),
+            "conv_website_lead_to_pro": float(conv_website_lead_to_pro),
+            "conv_website_lead_to_ent": float(conv_website_lead_to_ent),
+            "conv_outreach_lead_to_free": float(conv_outreach_lead_to_free),
+            "conv_outreach_lead_to_pro": float(conv_outreach_lead_to_pro),
+            "conv_outreach_lead_to_ent": float(conv_outreach_lead_to_ent),
             "conv_free_to_pro": float(conv_free_to_pro),
             "conv_pro_to_ent": float(conv_pro_to_ent),
             "churn_free": float(churn_free),
@@ -420,7 +495,6 @@ def main():
             "support_cost_per_pro": float(support_cost_per_pro),
             "support_cost_per_ent": float(support_cost_per_ent),
             "qualified_pool_total": float(qualified_pool_total),
-            "contact_rate_per_month": float(contact_rate_per_month),
             "scraping_efficiency_k": float(scraping_efficiency_k),
             "scraping_ref_spend": float(scraping_ref_spend),
             "credit_cash_threshold": float(credit_cash_threshold),
@@ -454,8 +528,10 @@ def main():
                         seo_spend=params["seo_spend"],
                         social_spend=params["social_spend"],
                         dev_spend=params["dev_spend"],
-                        scraping_spend=params["scraping_spend"],
-                        outreach_intensity=params["outreach_intensity"],
+                        partner_spend=params["partner_spend"],
+                        direct_candidate_outreach_spend=params[
+                            "direct_candidate_outreach_spend"
+                        ],
                         pro_price_override=params.get("pro_price_override"),
                         ent_price_override=params.get("ent_price_override"),
                     )
@@ -475,8 +551,10 @@ def main():
                         seo_spend=params["seo_spend"],
                         social_spend=params["social_spend"],
                         dev_spend=params["dev_spend"],
-                        scraping_spend=params["scraping_spend"],
-                        outreach_intensity=params["outreach_intensity"],
+                        partner_spend=params["partner_spend"],
+                        direct_candidate_outreach_spend=params[
+                            "direct_candidate_outreach_spend"
+                        ],
                         pro_price_override=params.get("pro_price_override"),
                         ent_price_override=params.get("ent_price_override"),
                     )
@@ -509,7 +587,10 @@ def main():
         if "assumptions" in st.session_state:
             st.header("Assumptions")
             a_tbl = pd.DataFrame(
-                [{"Parameter": k, "Value": v} for k, v in st.session_state.assumptions.__dict__.items()]
+                [
+                    {"Parameter": k, "Value": v}
+                    for k, v in st.session_state.assumptions.__dict__.items()
+                ]
             )
             st.dataframe(a_tbl, use_container_width=True)
 
@@ -620,28 +701,28 @@ def main():
 
         # Enhanced Analytics
         st.header("🎯 Enhanced Analytics")
-        
+
         # First row of enhanced plots
         col1, col2 = st.columns(2)
-        
+
         with col1:
             fig, ax = plt.subplots(figsize=(10, 6))
             plot_ltv_cac_analysis(df, ax=ax)
             st.pyplot(fig)
-            
+
         with col2:
             fig, ax = plt.subplots(figsize=(10, 6))
             plot_unit_economics(df, ax=ax)
             st.pyplot(fig)
-        
+
         # Second row of enhanced plots
         col1, col2 = st.columns(2)
-        
+
         with col1:
             fig, ax = plt.subplots(figsize=(10, 6))
             plot_conversion_funnel(df, ax=ax)
             st.pyplot(fig)
-            
+
         with col2:
             fig, ax = plt.subplots(figsize=(10, 6))
             plot_financial_health_score(df, ax=ax)
@@ -687,9 +768,18 @@ def main():
             out_path_detailed = str(Path(td) / "OTAI_Simulation_Detailed.xlsx")
             out_path_nice = str(Path(td) / "OTAI_Simulation_Nice.xlsx")
 
-            export_simulation_output(df, out_path=out_path_output, assumptions=a, monthly_decisions=decisions)
-            export_detailed(df, out_path=out_path_detailed, assumptions=a, monthly_decisions=decisions)
-            export_nice(df, out_path=out_path_nice, assumptions=a, monthly_decisions=decisions)
+            export_simulation_output(
+                df, out_path=out_path_output, assumptions=a, monthly_decisions=decisions
+            )
+            export_detailed(
+                df,
+                out_path=out_path_detailed,
+                assumptions=a,
+                monthly_decisions=decisions,
+            )
+            export_nice(
+                df, out_path=out_path_nice, assumptions=a, monthly_decisions=decisions
+            )
 
             with open(out_path_output, "rb") as f:
                 b_output = f.read()

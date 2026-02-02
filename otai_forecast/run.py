@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
-import pandas as pd
 
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
 from otai_forecast.decision_optimizer import (
     choose_best_decisions_by_market_cap,
 )
 from otai_forecast.export import export_detailed, export_nice, export_simulation_output
-from otai_forecast.models import Assumptions, MonthlyDecision
+from otai_forecast.models import MonthlyDecision
 from otai_forecast.plots import plot_enhanced_dashboard
 
 
 def run() -> None:
-    import pandas as pd
-
     a = DEFAULT_ASSUMPTIONS
 
     # Create simple constant decisions - optimizer will find the optimal values
@@ -24,12 +21,12 @@ def run() -> None:
             seo_spend=1000.0,
             social_spend=100.0,
             dev_spend=10000.0,
-            scraping_spend=100.0,
-            outreach_intensity=0.3,
+            partner_spend=200.0,
+            direct_candidate_outreach_spend=100.0,
         )
         for _ in range(a.months)
     ]
-    
+
     decisions, df = choose_best_decisions_by_market_cap(a, base_decisions)
 
     export_simulation_output(
@@ -41,7 +38,7 @@ def run() -> None:
 
     # Show plots
     plot_enhanced_dashboard(df, save_path="OTAI_Simulation_Plots.png")
-    plt.close('all')
+    plt.close("all")
 
     export_detailed(
         df,

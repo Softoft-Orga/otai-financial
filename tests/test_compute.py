@@ -41,8 +41,7 @@ class TestCompute(unittest.TestCase):
 
         self.d = MonthlyDecision(
             ads_spend=500.0,
-            seo_spend=300.0,
-            social_spend=150.0,
+            organic_marketing_spend=300.0,
             dev_spend=5000.0,
             partner_spend=0.0,
             direct_candidate_outreach_spend=0.0,

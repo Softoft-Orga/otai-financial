@@ -6,7 +6,7 @@ from otai_forecast.config import DEFAULT_ASSUMPTIONS
 from otai_forecast.decision_optimizer import (
     choose_best_decisions_by_market_cap,
 )
-from otai_forecast.export import export_detailed, export_nice, export_simulation_output
+from otai_forecast.export import export
 from otai_forecast.models import MonthlyDecision
 from otai_forecast.plots import plot_enhanced_dashboard
 
@@ -17,41 +17,28 @@ def run() -> None:
     # Create simple constant decisions - optimizer will find the optimal values
     base_decisions = [
         MonthlyDecision(
-            ads_spend=1000.0,
-            seo_spend=1000.0,
-            social_spend=100.0,
-            dev_spend=10000.0,
-            partner_spend=200.0,
-            direct_candidate_outreach_spend=100.0,
+            ads_budget=10000.0,
+            seo_budget=10000.0,
+            dev_budget=10_000.0,
+            partner_budget=2_000.0,
+            outreach_budget=10_000.0,
         )
         for _ in range(a.months)
     ]
 
     decisions, df = choose_best_decisions_by_market_cap(a, base_decisions)
 
-    export_simulation_output(
+    # Export the complete report with all plots
+    export(
         df,
-        out_path="OTAI_Simulation_Output.xlsx",
+        out_path="OTAI_Simulation_Report.xlsx",
         assumptions=a,
         monthly_decisions=decisions,
     )
 
-    # Show plots
+    # Also save the dashboard plot separately
     plot_enhanced_dashboard(df, save_path="OTAI_Simulation_Plots.png")
     plt.close("all")
-
-    export_detailed(
-        df,
-        out_path="OTAI_Simulation_Detailed.xlsx",
-        assumptions=a,
-        monthly_decisions=decisions,
-    )
-    export_nice(
-        df,
-        out_path="OTAI_Simulation_Nice.xlsx",
-        assumptions=a,
-        monthly_decisions=decisions,
-    )
 
 
 if __name__ == "__main__":

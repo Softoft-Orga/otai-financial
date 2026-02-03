@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+from io import BytesIO
 from typing import Any
 
+import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.figure import Figure
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.drawing.image import Image
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 
@@ -38,78 +42,9 @@ def _decisions_df(monthly_decisions: Any | None) -> pd.DataFrame | None:
     return pd.DataFrame(rows) if rows else None
 
 
-def export_simulation_output(
-    rows: list[dict] | pd.DataFrame,
-    out_path: str = "OTAI_Simulation_Output.xlsx",
-    assumptions: Any | None = None,
-    monthly_decisions: Any | None = None,
-) -> str:
-    df = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(rows)
-    df_a = _assumptions_df(assumptions)
-    df_d = _decisions_df(monthly_decisions)
-
-    with pd.ExcelWriter(out_path, engine="openpyxl") as w:
-        df.to_excel(w, index=False, sheet_name="simulation")
-        if df_a is not None:
-            df_a.to_excel(w, index=False, sheet_name="assumptions")
-        if df_d is not None:
-            df_d.to_excel(w, index=False, sheet_name="monthly_decisions")
-
-    wb = load_workbook(out_path)
-    ws = wb["simulation"]
-    ws.freeze_panes = "A2"
-
-    for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            v = "" if cell.value is None else str(cell.value)
-            max_len = max(max_len, len(v))
-        ws.column_dimensions[col_letter].width = min(40, max(10, max_len + 2))
-
-    wb.save(out_path)
-    return out_path
-
-
-def export_detailed(
+def export(
     detailed_log: list[dict] | pd.DataFrame,
-    out_path: str = "OTAI_Simulation_Detailed.xlsx",
-    assumptions: Any | None = None,
-    monthly_decisions: Any | None = None,
-) -> str:
-    df = (
-        detailed_log
-        if isinstance(detailed_log, pd.DataFrame)
-        else pd.DataFrame(detailed_log)
-    )
-    df_a = _assumptions_df(assumptions)
-    df_d = _decisions_df(monthly_decisions)
-
-    with pd.ExcelWriter(out_path, engine="openpyxl") as w:
-        df.to_excel(w, index=False, sheet_name="monthly")
-        if df_a is not None:
-            df_a.to_excel(w, index=False, sheet_name="assumptions")
-        if df_d is not None:
-            df_d.to_excel(w, index=False, sheet_name="monthly_decisions")
-
-    wb = load_workbook(out_path)
-    ws = wb.active
-
-    for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            v = "" if cell.value is None else str(cell.value)
-            max_len = max(max_len, len(v))
-        ws.column_dimensions[col_letter].width = min(40, max(10, max_len + 2))
-
-    wb.save(out_path)
-    return out_path
-
-
-def export_nice(
-    detailed_log: list[dict] | pd.DataFrame,
-    out_path: str = "OTAI_Simulation_Nice.xlsx",
+    out_path: str = "OTAI_Simulation_Report.xlsx",
     assumptions: Any | None = None,
     monthly_decisions: Any | None = None,
 ) -> str:
@@ -156,8 +91,7 @@ def export_nice(
     acq_cols = [
         "month",
         "ads_spend",
-        "seo_spend",
-        "social_spend",
+        "organic_marketing_spend",
         "dev_spend",
         "operating_spend",
         "direct_candidate_outreach_spend",
@@ -305,14 +239,8 @@ def export_nice(
         ),
         (
             "Total SEO spend (€)",
-            float(df["seo_spend"].sum())
-            if "seo_spend" in df.columns and len(df)
-            else None,
-        ),
-        (
-            "Total Social spend (€)",
-            float(df["social_spend"].sum())
-            if "social_spend" in df.columns and len(df)
+            float(df["organic_marketing_spend"].sum())
+            if "organic_marketing_spend" in df.columns and len(df)
             else None,
         ),
         (
@@ -323,6 +251,81 @@ def export_nice(
         ),
     ]
     df_kpis = pd.DataFrame(kpis, columns=["Metric", "Value"])
+
+    # Import all plotting functions
+    from .plots import (
+        plot_cash_burn_rate,
+        plot_cash_debt_spend,
+        plot_cash_position,
+        plot_conversion_funnel,
+        plot_costs_breakdown,
+        plot_customer_acquisition_channels,
+        plot_enhanced_dashboard,
+        plot_financial_health_score,
+        plot_growth_insights,
+        plot_growth_metrics_heatmap,
+        plot_leads,
+        plot_ltv_cac_analysis,
+        plot_market_cap,
+        plot_monthly_revenue,
+        plot_net_cashflow,
+        plot_product_value,
+        plot_results,
+        plot_revenue_breakdown,
+        plot_revenue_cashflow,
+        plot_revenue_split,
+        plot_ttm_revenue,
+        plot_unit_economics,
+        plot_user_growth,
+        plot_user_growth_stacked,
+    )
+
+    # Generate all plots and save to BytesIO
+    plot_images = {}
+
+    # Basic plots
+    plot_images["User_Growth"] = plot_results(df, save_path=None)
+    plot_images["User_Growth_2"] = plot_user_growth(df)
+    plot_images["Revenue_Cashflow"] = plot_revenue_cashflow(df)
+    plot_images["Cash_Position"] = plot_cash_position(df)
+    plot_images["Market_Cap"] = plot_market_cap(df)
+    plot_images["Monthly_Revenue"] = plot_monthly_revenue(df)
+    plot_images["Product_Value"] = plot_product_value(df)
+    plot_images["Leads"] = plot_leads(df)
+    plot_images["Net_Cashflow"] = plot_net_cashflow(df)
+    plot_images["TTM_Revenue"] = plot_ttm_revenue(df)
+
+    # Enhanced plots
+    plot_images["User_Growth_Stacked"] = plot_user_growth_stacked(df)
+    plot_images["Revenue_Breakdown"] = plot_revenue_breakdown(df)
+    plot_images["Cash_Burn_Rate"] = plot_cash_burn_rate(df)
+    plot_images["Conversion_Funnel"] = plot_conversion_funnel(df)
+    plot_images["LTV_CAC_Analysis"] = plot_ltv_cac_analysis(df)
+    plot_images["Unit_Economics"] = plot_unit_economics(df)
+    plot_images["Growth_Heatmap"] = plot_growth_metrics_heatmap(df)
+    plot_images["Acquisition_Channels"] = plot_customer_acquisition_channels(df)
+    plot_images["Financial_Health"] = plot_financial_health_score(df)
+
+    # Dashboard plots
+    plot_images["Enhanced_Dashboard"] = plot_enhanced_dashboard(df, save_path=None)
+    plot_images["Growth_Insights"] = plot_growth_insights(df, save_path=None)
+    plot_images["Cash_Debt_Spend"] = plot_cash_debt_spend(df)
+    plot_images["Costs_Breakdown"] = plot_costs_breakdown(df)
+    plot_images["Revenue_Split"] = plot_revenue_split(df)
+
+    # Convert plots to image bytes
+    image_bytes = {}
+    for name, plot in plot_images.items():
+        buf = BytesIO()
+        # Handle both Axes and Figures
+        if isinstance(plot, Figure):
+            plot.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        else:
+            # For Axes, get the figure
+            plot.figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        buf.seek(0)
+        image_bytes[name] = buf
+        plt.close(plot) if isinstance(plot, Figure) else plt.close(plot.figure)
 
     with pd.ExcelWriter(out_path, engine="openpyxl") as w:
         df_kpis.to_excel(w, index=False, sheet_name="Dashboard_KPIs")
@@ -339,9 +342,18 @@ def export_nice(
 
     wb = load_workbook(out_path)
 
+    # Define styles
     header_fill = PatternFill("solid", fgColor="1F2937")
-    header_font = Font(color="FFFFFF", bold=True)
+    header_font = Font(color="FFFFFF", bold=True, size=12)
     header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+    title_font = Font(size=16, bold=True, color="1F2937")
+    subtitle_font = Font(size=14, bold=True, color="374151")
 
     def autosize(ws):
         for i, col in enumerate(
@@ -358,17 +370,61 @@ def export_nice(
                 42, max(10, max_len + 2)
             )
 
-    def style_sheet(ws):
+    def style_sheet(ws, is_kpi=False):
         ws.freeze_panes = "A2"
-        ws.row_dimensions[1].height = 24
+        ws.row_dimensions[1].height = 30 if is_kpi else 24
+
+        # Style headers
         for cell in ws[1]:
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = header_align
+            cell.border = border
+
+        # Style data cells
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.border = border
+                if is_kpi and cell.column == 1:  # Metric names in KPI sheet
+                    cell.font = Font(bold=True, color="374151")
+
         autosize(ws)
 
+        # Add title to KPI sheet
+        if is_kpi:
+            ws.insert_rows(1)
+            ws.merge_cells("A1:B1")
+            ws["A1"] = "OTAI Financial Simulation - Key Performance Indicators"
+            ws["A1"].font = title_font
+            ws["A1"].alignment = Alignment(horizontal="center")
+            ws.row_dimensions[1].height = 40
+
+    # Style all sheets
     for name in wb.sheetnames:
-        style_sheet(wb[name])
+        is_kpi = name == "Dashboard_KPIs"
+        style_sheet(wb[name], is_kpi=is_kpi)
+
+        # Add subtitles to sheets
+        if name != "Dashboard_KPIs":
+            ws = wb[name]
+            ws.insert_rows(1)
+            ws.merge_cells(f"A1:{get_column_letter(ws.max_column)}1")
+
+            subtitle_map = {
+                "Dashboard_Overview": "Business Overview - Key Metrics Summary",
+                "Finance": "Financial Performance - Revenue, Costs & Cash Flow",
+                "Acquisition": "Customer Acquisition - Marketing & Sales Channels",
+                "Funnel": "Conversion Funnel - User Journey Analytics",
+                "Product": "Product Metrics - Value, Pricing & Conversions",
+                "Assumptions": "Model Assumptions - Input Parameters",
+                "Monthly_Decisions": "Monthly Decisions - Strategic Choices",
+                "Monthly_Full": "Complete Monthly Data - All Variables",
+            }
+
+            ws["A1"] = subtitle_map.get(name, f"{name} Report")
+            ws["A1"].font = subtitle_font
+            ws["A1"].alignment = Alignment(horizontal="center")
+            ws.row_dimensions[1].height = 35
 
     for name in [
         "Dashboard_Overview",
@@ -391,8 +447,7 @@ def export_nice(
             "revenue_pro",
             "revenue_ent",
             "ads_spend",
-            "seo_spend",
-            "social_spend",
+            "organic_marketing_spend",
             "dev_spend",
             "operating_spend",
             "direct_candidate_outreach_spend",
@@ -410,4 +465,129 @@ def export_nice(
                     ws.cell(row=r, column=idx).number_format = '#,##0.00" €"'
 
     wb.save(out_path)
+
+    # Create a new workbook for plots
+    wb_plots = load_workbook(out_path)
+
+    # Remove existing plot sheets if any
+    for sheet_name in ["Plots_Basic", "Plots_Enhanced", "Plots_Dashboards"]:
+        if sheet_name in wb_plots.sheetnames:
+            wb_plots.remove(wb_plots[sheet_name])
+
+    # Add plot sheets
+    # Basic plots sheet
+    ws_plots_basic = wb_plots.create_sheet("Plots_Basic")
+    ws_plots_basic["A1"] = "Basic Visualization Plots"
+    ws_plots_basic["A1"].font = title_font
+    ws_plots_basic["A1"].alignment = Alignment(horizontal="center")
+    ws_plots_basic.merge_cells("A1:H1")
+    ws_plots_basic.row_dimensions[1].height = 40
+
+    # Add basic plots
+    basic_plot_names = [
+        "User_Growth",
+        "Revenue_Cashflow",
+        "Cash_Position",
+        "Market_Cap",
+        "Monthly_Revenue",
+        "Product_Value",
+        "Leads",
+        "Net_Cashflow",
+    ]
+    for i, plot_name in enumerate(basic_plot_names):
+        if plot_name in image_bytes:
+            row = (i // 2) * 40 + 3
+            col = (i % 2) * 8 + 1
+
+            img = Image(image_bytes[plot_name])
+            img.width = 600
+            img.height = 350
+            ws_plots_basic.add_image(img, f"{get_column_letter(col)}{row}")
+
+            # Add plot title
+            title_cell = f"{get_column_letter(col)}{row - 1}"
+            ws_plots_basic[title_cell] = plot_name.replace("_", " ")
+            ws_plots_basic[title_cell].font = Font(size=14, bold=True)
+            ws_plots_basic[title_cell].alignment = Alignment(horizontal="center")
+
+    # Enhanced plots sheet
+    ws_plots_enhanced = wb_plots.create_sheet("Plots_Enhanced")
+    ws_plots_enhanced["A1"] = "Enhanced Analytics Plots"
+    ws_plots_enhanced["A1"].font = title_font
+    ws_plots_enhanced["A1"].alignment = Alignment(horizontal="center")
+    ws_plots_enhanced.merge_cells("A1:H1")
+    ws_plots_enhanced.row_dimensions[1].height = 40
+
+    # Add enhanced plots
+    enhanced_plot_names = [
+        "User_Growth_Stacked",
+        "Revenue_Breakdown",
+        "Cash_Burn_Rate",
+        "Conversion_Funnel",
+        "LTV_CAC_Analysis",
+        "Unit_Economics",
+        "Growth_Heatmap",
+        "Acquisition_Channels",
+    ]
+    for i, plot_name in enumerate(enhanced_plot_names):
+        if plot_name in image_bytes:
+            row = (i // 2) * 40 + 3
+            col = (i % 2) * 8 + 1
+
+            img = Image(image_bytes[plot_name])
+            img.width = 600
+            img.height = 350
+            ws_plots_enhanced.add_image(img, f"{get_column_letter(col)}{row}")
+
+            # Add plot title
+            title_cell = f"{get_column_letter(col)}{row - 1}"
+            ws_plots_enhanced[title_cell] = plot_name.replace("_", " ")
+            ws_plots_enhanced[title_cell].font = Font(size=14, bold=True)
+            ws_plots_enhanced[title_cell].alignment = Alignment(horizontal="center")
+
+    # Dashboard plots sheet
+    ws_plots_dash = wb_plots.create_sheet("Plots_Dashboards")
+    ws_plots_dash["A1"] = "Comprehensive Dashboard Views"
+    ws_plots_dash["A1"].font = title_font
+    ws_plots_dash["A1"].alignment = Alignment(horizontal="center")
+    ws_plots_dash.merge_cells("A1:H1")
+    ws_plots_dash.row_dimensions[1].height = 40
+
+    # Add dashboard plots (larger)
+    dashboard_plot_names = [
+        "Enhanced_Dashboard",
+        "Growth_Insights",
+        "Cash_Debt_Spend",
+        "Costs_Breakdown",
+        "Revenue_Split",
+        "Financial_Health",
+    ]
+    for i, plot_name in enumerate(dashboard_plot_names):
+        if plot_name in image_bytes:
+            row = (i // 2) * 45 + 3
+            col = (i % 2) * 8 + 1
+
+            img = Image(image_bytes[plot_name])
+            img.width = 700
+            img.height = 450
+            ws_plots_dash.add_image(img, f"{get_column_letter(col)}{row}")
+
+            # Add plot title
+            title_cell = f"{get_column_letter(col)}{row - 1}"
+            ws_plots_dash[title_cell] = plot_name.replace("_", " ")
+            ws_plots_dash[title_cell].font = Font(size=14, bold=True)
+            ws_plots_dash[title_cell].alignment = Alignment(horizontal="center")
+
+    # Adjust column widths for plot sheets
+    for ws_name in ["Plots_Basic", "Plots_Enhanced", "Plots_Dashboards"]:
+        ws = wb_plots[ws_name]
+        for col in ["A", "B", "C", "D", "E", "F", "G", "H"]:
+            ws.column_dimensions[col].width = 15
+
+    wb_plots.save(out_path)
+
+    # Close all BytesIO objects
+    for buf in image_bytes.values():
+        buf.close()
+
     return out_path

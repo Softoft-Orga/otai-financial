@@ -61,16 +61,13 @@ def scale_decisions_time_ramp(
 
         out.append(
             MonthlyDecision(
-                ads_spend=max(0.0, d.ads_spend * ads_mult),
-                seo_spend=max(0.0, d.seo_spend * seo_mult),
-                social_spend=d.social_spend,
-                dev_spend=max(0.0, d.dev_spend * dev_mult),
-                partner_spend=max(0.0, d.partner_spend * partner_mult),
-                direct_candidate_outreach_spend=max(
-                    0.0, d.direct_candidate_outreach_spend * direct_outreach_mult
+                ads_budget=max(0.0, d.ads_budget * ads_mult),
+                seo_budget=max(0.0, d.seo_budget * seo_mult),
+                dev_budget=max(0.0, d.dev_budget * dev_mult),
+                partner_budget=max(0.0, d.partner_budget * partner_mult),
+                outreach_budget=max(
+                    0.0, d.outreach_budget * direct_outreach_mult
                 ),
-                pro_price_override=d.pro_price_override,
-                ent_price_override=d.ent_price_override,
             )
         )
 
@@ -81,7 +78,7 @@ def choose_best_decisions_by_market_cap(
     a: Assumptions,
     base: list[MonthlyDecision],
     *,
-    max_evals: int = 25_000,
+    max_evals: int = 10_000,
     seed: int = 0,
 ) -> tuple[list[MonthlyDecision], pd.DataFrame]:
     best_score = -1.0
@@ -90,16 +87,16 @@ def choose_best_decisions_by_market_cap(
 
     rng = random.Random(seed)
     for _ in range(int(max_evals)):
-        ads_start = rng.uniform(0.0, 3.0)
-        ads_end = rng.uniform(0.0, 3.0)
-        seo_start = rng.uniform(0.0, 3.0)
-        seo_end = rng.uniform(0.0, 3.0)
-        dev_start = rng.uniform(0.5, 1.5)
-        dev_end = rng.uniform(0.5, 1.5)
+        ads_start = rng.uniform(0.0, 10)
+        ads_end = rng.uniform(0.0, 10)
+        seo_start = rng.uniform(0.0, 10)
+        seo_end = rng.uniform(0.0, 10)
+        dev_start = rng.uniform(0.0, 10)
+        dev_end = rng.uniform(0.0, 10)
         partner_start = rng.uniform(0.0, 3.0)
         partner_end = rng.uniform(0.0, 3.0)
-        direct_outreach_start = rng.uniform(0.0, 3.0)
-        direct_outreach_end = rng.uniform(0.0, 3.0)
+        direct_outreach_start = rng.uniform(0.0, 10)
+        direct_outreach_end = rng.uniform(0.0, 10)
 
         decisions = scale_decisions_time_ramp(
             base,

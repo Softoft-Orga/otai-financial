@@ -51,7 +51,7 @@ class Assumptions:
     Formula: effective_cpc = cpc_base + cpc_k * log(1 + ads_spend / cpc_ref_spend)
     """
 
-    cpc_k: float
+    cpc_sensitivity_factor: float
     """CPC scaling factor for ad spend. Must be >= 0.
 
     Effect: Logarithmic - controls how quickly CPC increases with spend.
@@ -65,11 +65,11 @@ class Assumptions:
     """
 
     # SEO Model - Accumulating stock with decay
-    seo_eff_users_per_eur: float
+    seo_users_per_eur: float
     """SEO efficiency: users generated per euro spent. Must be >= 0.
 
     Effect: Linear on spend, but subject to decay.
-    New SEO users = seo_spend * seo_eff_users_per_eur.
+    New SEO users = seo_spend * seo_users_per_eur.
     """
 
     seo_decay: float
@@ -92,14 +92,14 @@ class Assumptions:
     Effect: Asymptotic limit - domain rating approaches but never exceeds this.
     """
 
-    domain_rating_growth_k: float
+    domain_rating_spend_sensitivity: float
     """Domain rating growth coefficient. Must be >= 0.
 
     Effect: Logarithmic - controls growth rate from SEO spend.
     Higher values = faster growth but with diminishing returns.
     """
 
-    domain_rating_growth_ref_spend: float
+    domain_rating_reference_spend_eur: float
     """Reference SEO spend for domain rating growth. Must be > 0.
 
     Effect: Logarithmic scale parameter for domain rating growth.
@@ -299,6 +299,18 @@ class Assumptions:
     Effect: Linear - fixed amount added to debt and cash when triggered.
     """
 
+    debt_repay_cash_threshold: float
+    """Cash level that triggers automatic debt repayment. Must be >= 0.
+
+    Effect: Threshold - if cash > threshold and debt > 0, repayment is made.
+    """
+
+    debt_repay_amount: float
+    """Amount of debt to repay when threshold is breached. Must be >= 0.
+
+    Effect: Linear - fixed amount subtracted from debt and cash when triggered.
+    """
+
     debt_interest_rate_base_annual: float
     """Base annual interest rate at zero debt. Must be >= 0.
 
@@ -336,65 +348,107 @@ class Assumptions:
     Effect: Normalization point - used to calculate pv_norm = product_value / pv_ref.
     """
 
-    pv_decay_shape: float
-    """Shape parameter for product value decay. Must be >= 0.
+    product_value_decay_shape: float
+    """Shape parameter for product value natural decay. Must be >= 0.
 
-    Effect: Exponential - controls decay curve shape when dev_spend < maintenance.
-    Higher values = slower decay.
+    Effect: Controls how quickly product value degrades without maintenance.
+    Higher values = faster decay.
     """
 
-    pv_growth_scale: float
+    dev_spend_growth_efficiency: float
     """Scale factor for product value growth from dev spend. Must be >= 0.
 
     Effect: Logarithmic - controls how efficiently dev spend increases product value.
     Higher values = more efficient growth.
     """
 
-    product_value_divisor: float
+    monthly_renewal_fee_product_divisor: float
 
     # Product Value Effects - How product value influences other metrics
-    k_pv_web_to_lead: float
-    """Product value effect on web-to-lead conversion. Must be >= 0.
+    product_value_impact_on_web_conversions: float
+    """Product value impact on web-to-lead conversion. Must be >= 0.
 
-    Effect: Power law - conv_eff = conv_base * (pv_norm ^ k).
-    Higher values = more conversion improvement from better product.
+    Effect: Controls how much product value improves web-to-lead conversions.
+    Higher values = stronger impact.
     """
 
-    k_pv_lead_to_free: float
-    """Product value effect on lead-to-user conversions. Must be >= 0.
+    product_value_impact_on_lead_to_free: float
+    """Product value impact on lead-to-free conversion. Must be >= 0.
 
-    Effect: Scales lead conversion rates based on product value.
+    Effect: Controls how much product value improves lead-to-free conversions.
+    Higher values = stronger impact.
     """
 
-    k_pv_free_to_pro: float
-    """Product value effect on free-to-pro conversion. Must be >= 0.
+    product_value_impact_on_free_to_pro: float
+    """Product value impact on free-to-pro conversion. Must be >= 0.
 
-    Effect: Power law - same mechanism as above.
+    Effect: Controls how much product value improves free-to-pro conversions.
+    Higher values = stronger impact.
     """
 
-    k_pv_pro_to_ent: float
-    """Product value effect on pro-to-enterprise conversion. Must be >= 0.
+    product_value_impact_on_pro_to_ent: float
+    """Product value impact on pro-to-enterprise conversion. Must be >= 0.
 
-    Effect: Power law - same mechanism as above.
+    Effect: Controls how much product value improves pro-to-enterprise conversions.
+    Higher values = stronger impact.
     """
 
-    k_pv_churn_pro: float
-    """Product value effect on pro churn reduction. Must be >= 0.
+    product_value_impact_on_pro_churn: float
+    """Product value impact on pro churn reduction. Must be >= 0.
 
-    Effect: Power law - churn_eff = churn_base / (pv_norm ^ k).
-    Higher values = more churn reduction from better product.
+    Effect: Controls how much product value reduces pro customer churn.
+    Higher values = stronger reduction.
     """
 
-    k_pv_churn_free: float
-    """Product value effect on free churn reduction. Must be >= 0.
+    product_value_impact_on_free_churn: float
+    """Product value impact on free churn reduction. Must be >= 0.
 
-    Effect: Power law - same mechanism as above.
+    Effect: Controls how much product value reduces free customer churn.
+    Higher values = stronger reduction.
     """
 
-    k_pv_churn_ent: float
-    """Product value effect on enterprise churn reduction. Must be >= 0.
+    product_value_impact_on_ent_churn: float
+    """Product value impact on enterprise churn reduction. Must be >= 0.
 
-    Effect: Power law - same mechanism as above.
+    Effect: Controls how much product value reduces enterprise customer churn.
+    Higher values = stronger reduction.
+    """
+
+    # Cost Category Assumptions
+    payment_processing_rate: float
+    """Payment processing fee rate as percentage of revenue (0-1).
+
+    Effect: Linear - revenue * payment_processing_rate = payment fees.
+    Part of COGS (Cost of Goods Sold).
+    """
+
+    # Direct conversion costs (COGS)
+    cost_per_outreach_conversion_free: float
+    """Cost to convert one outreach lead to free user. Must be >= 0.
+
+    Effect: Linear - new_free_from_outreach * cost = COGS.
+    Direct cost of conversion effort per successful free signup.
+    """
+
+    cost_per_outreach_conversion_pro: float
+    """Cost to convert one outreach lead to pro user. Must be >= 0.
+
+    Effect: Linear - new_pro_from_outreach * cost = COGS.
+    Direct cost of sales effort per successful pro conversion.
+    """
+
+    cost_per_outreach_conversion_ent: float
+    """Cost to convert one outreach lead to enterprise user. Must be >= 0.
+
+    Effect: Linear - new_ent_from_outreach * cost = COGS.
+    Direct cost of enterprise sales effort per successful enterprise conversion.
+    """
+
+    dev_capex_ratio: float
+    """Portion of dev spend that is capitalized as CAPEX (0-1).
+
+    Effect: Linear - dev_spend * dev_capex_ratio = CAPEX.
+    Remaining dev_spend is treated as R&D operating expense.
     """
 
     def __post_init__(self):
@@ -510,6 +564,10 @@ class Assumptions:
             raise ValueError("credit_cash_threshold must be >= 0")
         if self.credit_draw_amount < 0:
             raise ValueError("credit_draw_amount must be >= 0")
+        if self.debt_repay_cash_threshold < 0:
+            raise ValueError("debt_repay_cash_threshold must be >= 0")
+        if self.debt_repay_amount < 0:
+            raise ValueError("debt_repay_amount must be >= 0")
         if self.debt_interest_rate_base_annual < 0:
             raise ValueError("debt_interest_rate_base_annual must be >= 0")
         if self.debt_interest_rate_k < 0:
@@ -528,7 +586,7 @@ class Assumptions:
         if self.pv_decay_shape < 0:
             raise ValueError("pv_decay_shape must be >= 0")
 
-        if self.product_value_divisor <= 0:
+        if self.monthly_renewal_fee_product_divisor <= 0:
             raise ValueError("product_value_divisor must be > 0")
 
 
@@ -541,29 +599,22 @@ class MonthlyDecision:
     """
 
     # Marketing & Growth Spend
-    ads_spend: float
+    ads_budget: float
     """Monthly advertising spend (e.g., Google Ads, Facebook). Must be >= 0.
 
     Effect: Generates clicks via dynamic CPC model.
     Higher spend increases CPC (diminishing returns).
     """
 
-    seo_spend: float
-    """Monthly SEO investment. Must be >= 0.
+    seo_budget: float
+    """Monthly organic marketing investment (SEO, content, etc.). Must be >= 0.
 
     Effect: Increases domain_rating and adds to seo_stock_users.
     Has logarithmic diminishing returns on domain rating.
     """
 
-    social_spend: float
-    """Monthly social media marketing spend. Must be >= 0.
-
-    Effect: Currently not implemented in the model.
-    Reserved for future social media acquisition channels.
-    """
-
     # Product Development
-    dev_spend: float
+    dev_budget: float
     """Monthly product development spend. Must be >= 0.
 
     Effect: Increases product_value if above maintenance threshold.
@@ -572,45 +623,25 @@ class MonthlyDecision:
     """
 
     # Sales & Outreach
-    direct_candidate_outreach_spend: float
+    outreach_budget: float
     """Monthly spend on prospect scraping tools/services. Must be >= 0.
 
     Effect: Discovers prospects from qualified_pool_total.
     Has logarithmic diminishing returns.
     """
 
-    partner_spend: float
-
-    # Pricing Overrides
-    pro_price_override: float | None = None
-    """Optional override for pro tier price in this month. Must be >= 0 if set.
-
-    Effect: Replaces calculated pro_price for this month only.
-    Useful for promotions, experiments, or strategic pricing.
-    """
-
-    ent_price_override: float | None = None
-    """Optional override for enterprise tier price in this month. Must be >= 0 if set.
-
-    Effect: Replaces calculated ent_price for this month only.
-    """
+    partner_budget: float
 
     def __post_init__(self):
         for name, v in (
-            ("ads_spend", self.ads_spend),
-            ("seo_spend", self.seo_spend),
-            ("social_spend", self.social_spend),
-            ("dev_spend", self.dev_spend),
-            ("direct_candidate_outreach_spend", self.direct_candidate_outreach_spend),
-            ("partner_spend", self.partner_spend),
+            ("ads_budget", self.ads_budget),
+            ("seo_budget", self.seo_budget),
+            ("dev_budget", self.dev_budget),
+            ("outreach_budget", self.outreach_budget),
+            ("partner_budget", self.partner_budget),
         ):
             if v < 0:
                 raise ValueError(f"{name} must be >= 0")
-
-        if self.pro_price_override is not None and self.pro_price_override < 0:
-            raise ValueError("pro_price_override must be >= 0")
-        if self.ent_price_override is not None and self.ent_price_override < 0:
-            raise ValueError("ent_price_override must be >= 0")
 
 
 type MonthlyDecisions = list["MonthlyDecision"]
@@ -685,6 +716,13 @@ class State:
 
     partners_active: float = field()
 
+    qualified_pool_remaining: float = field()
+    """Remaining prospects in the market that haven't been scraped yet. Must be >= 0.
+
+    Effect: Limits the total leads that can be generated via scraping/outreach.
+    Decreases as prospects are found and contacted.
+    """
+
     def __post_init__(self):
         if self.month < 0:
             raise ValueError("month must be >= 0")
@@ -698,6 +736,8 @@ class State:
             raise ValueError("active user counts must be >= 0")
         if self.partners_active < 0:
             raise ValueError("partners_active must be >= 0")
+        if self.qualified_pool_remaining < 0:
+            raise ValueError("qualified_pool_remaining must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -846,6 +886,13 @@ class MonthlyCalculated:
     Grows with seo_spend, decays by domain_rating_decay.
     """
 
+    qualified_pool_remaining_next: float
+    """Remaining prospects in the market for next month.
+
+    Effect: Becomes the new qualified_pool_remaining in next State.
+    Decreases as prospects are scraped and contacted.
+    """
+
     website_users: float
     """Total website visitors this month.
 
@@ -906,6 +953,23 @@ class MonthlyCalculated:
     Effect: Adds to ent_active in next State.
     """
 
+    # Next period user counts (after all calculations)
+    free_next: float
+    """Free users count for next period (after churn and upgrades).
+
+    Effect: For analysis and consistency.
+    """
+    pro_next: float
+    """Pro users count for next period (after churn and upgrades).
+
+    Effect: Used for revenue calculations.
+    """
+    ent_next: float
+    """Enterprise users count for next period (after churn and upgrades).
+
+    Effect: Used for revenue calculations.
+    """
+
     upgraded_to_pro: float
     upgraded_to_ent: float
 
@@ -959,17 +1023,17 @@ class MonthlyCalculated:
 
     # Financial Results
     revenue_pro: float
-    """Revenue from pro tier users.
+    """Revenue from new pro tier customers (one-time licenses).
 
     Effect: Part of revenue_total.
-    Calculated: pro_active * pro_price.
+    Calculated: new_pro * pro_price.
     """
 
     revenue_ent: float
-    """Revenue from enterprise users.
+    """Revenue from new enterprise customers (one-time licenses).
 
     Effect: Part of revenue_total.
-    Calculated: ent_active * ent_price.
+    Calculated: new_ent * ent_price.
     """
 
     revenue_total: float
@@ -984,6 +1048,38 @@ class MonthlyCalculated:
 
     Effect: Subtracted from revenue to calculate profit.
     Includes all operating, sales, support, and interest costs.
+    """
+
+    # Cost Categories (Financial Standards)
+    cost_of_goods_sold: float
+    """Cost of Goods Sold (COGS) - Direct costs to produce/deliver the product.
+
+    Includes hosting/cloud compute, licenses tied to usage, payment processing fees,
+    direct subcontractors, and hardware (if sold with product).
+    """
+
+    operating_expenses: float
+    """Operating Expenses (OPEX) - Costs to run the company.
+
+    Includes R&D (engineering salaries, contractors, tooling),
+    Sales & Marketing (ads, events, content, sales tools),
+    General & Administrative (accounting, legal, insurance, rent),
+    Customer Support (support staff, support tools),
+    IT / Internal Tools (SaaS, internal infra).
+    """
+
+    capital_expenditure: float
+    """Capital Expenditures (CAPEX) - Long-term investments.
+
+    Includes servers, GPUs, office equipment, capitalized software development.
+    Currently modeled as part of dev_spend that creates long-term value.
+    """
+
+    financial_expenses: float
+    """Financial / Non-operating costs.
+
+    Includes interest expenses, FX losses, one-off legal settlements.
+    Currently includes interest payments on debt.
     """
 
     profit_bt: float
@@ -1006,6 +1102,70 @@ class MonthlyCalculated:
     Effect: Updates cash in next State.
     Calculated: profit_bt - tax - total_spend.
     """
+
+    # Additional fields for enhanced plotting
+    spend_last_month: float
+    """Total spend in the previous month.
+
+    Effect: Used for cash flow analysis.
+    Calculated: Sum of all decision spends from previous month.
+    """
+
+    # Detailed revenue breakdowns for plotting
+    revenue_pro_website: float
+    """Revenue from pro customers acquired via website."""
+
+    revenue_pro_outreach: float
+    """Revenue from pro customers acquired via outreach."""
+
+    revenue_pro_partner: float
+    """Revenue from pro customers acquired via partners."""
+
+    revenue_ent_website: float
+    """Revenue from enterprise customers acquired via website."""
+
+    revenue_ent_outreach: float
+    """Revenue from enterprise customers acquired via outreach."""
+
+    revenue_ent_partner: float
+    """Revenue from enterprise customers acquired via partners."""
+
+    revenue_renewal_pro: float
+    """Revenue from pro customer renewals."""
+
+    revenue_renewal_ent: float
+    """Revenue from enterprise customer renewals."""
+
+    revenue_support_pro: float
+    """Revenue from pro support subscriptions."""
+
+    revenue_support_ent: float
+    """Revenue from enterprise support subscriptions."""
+
+    # Detailed cost breakdowns for plotting
+    cost_sales_marketing: float
+    """Sales & marketing costs."""
+
+    cost_rd_expense: float
+    """R&D expenses."""
+
+    cost_ga: float
+    """General & administrative costs."""
+
+    cost_customer_support: float
+    """Customer support costs."""
+
+    cost_it_tools: float
+    """IT and internal tools costs."""
+
+    cost_payment_processing: float
+    """Payment processing fees."""
+
+    cost_outreach_conversion: float
+    """Direct outreach conversion costs."""
+
+    cost_partner_commission: float
+    """Partner commission costs."""
 
     def __post_init__(self):
         if self.product_value_next <= 0:

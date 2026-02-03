@@ -48,16 +48,14 @@ class TestProductValueBehavior(unittest.TestCase):
     def test_higher_dev_spend_improves_product_value(self):
         low = MonthlyDecision(
             ads_spend=0.0,
-            seo_spend=0.0,
-            social_spend=0.0,
+            organic_marketing_spend=0.0,
             dev_spend=0.0,
             partner_spend=0.0,
             direct_candidate_outreach_spend=0.0,
         )
         high = MonthlyDecision(
             ads_spend=0.0,
-            seo_spend=0.0,
-            social_spend=0.0,
+            organic_marketing_spend=0.0,
             dev_spend=10000.0,
             partner_spend=0.0,
             direct_candidate_outreach_spend=0.0,
@@ -71,8 +69,7 @@ class TestProductValueBehavior(unittest.TestCase):
     def test_effective_rates_are_bounded(self):
         d = MonthlyDecision(
             ads_spend=1000.0,
-            seo_spend=1000.0,
-            social_spend=0.0,
+            organic_marketing_spend=1000.0,
             dev_spend=0.0,
             partner_spend=0.0,
             direct_candidate_outreach_spend=0.0,

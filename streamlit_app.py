@@ -16,11 +16,14 @@ from otai_forecast.decision_optimizer import (
     choose_best_decisions_by_market_cap,
     run_simulation_df,
 )
-from otai_forecast.export import export_detailed, export_nice, export_simulation_output
+from otai_forecast.export import export
 from otai_forecast.models import Assumptions, MonthlyDecision
 from otai_forecast.plots import (
     plot_cash_burn_rate,
+    plot_cash_debt_spend,
     plot_conversion_funnel,
+    plot_costs_breakdown,
+    plot_enhanced_dashboard,
     plot_financial_health_score,
     plot_leads,
     plot_ltv_cac_analysis,
@@ -28,6 +31,7 @@ from otai_forecast.plots import (
     plot_monthly_revenue,
     plot_net_cashflow,
     plot_product_value,
+    plot_revenue_split,
     plot_ttm_revenue,
     plot_unit_economics,
     plot_user_growth_stacked,
@@ -68,21 +72,22 @@ def main():
 
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    ads_spend = st.slider("Ads", 0, 50000, 500)
-                    seo_spend = st.slider("SEO", 0, 50000, 300)
-                    social_spend = st.slider("Social", 0, 50000, 150)
+                    ads_spend = st.slider("Ads", 0, 50000, 10000, 1_000)
+                    organic_marketing_spend = st.slider(
+                        "Organic Marketing", 0, 50000, 10000, 1_000
+                    )
                     direct_candidate_outreach_spend = st.slider(
-                        "Direct candidate outreach spend", 0, 200000, 0
+                        "Direct candidate outreach spend", 0, 200000, 10000, 1_000
                     )
                 with col_b:
-                    dev_spend = st.slider("Development", 0, 200000, 5000)
-                    partner_spend = st.slider("Partner spend", 0, 200000, 0)
+                    dev_spend = st.slider("Development", 0, 200000, 50000, 1_000)
+                    partner_spend = st.slider("Partner spend", 0, 200000, 1000, 1_000)
 
                 max_evals = st.number_input(
                     "Optimization trials",
                     min_value=1000,
                     max_value=250000,
-                    value=2000,
+                    value=25000,
                     step=1000,
                 )
 
@@ -457,8 +462,7 @@ def main():
             "months": int(months),
             "starting_cash": float(starting_cash),
             "ads_spend": float(ads_spend),
-            "seo_spend": float(seo_spend),
-            "social_spend": float(social_spend),
+            "organic_marketing_spend": float(organic_marketing_spend),
             "dev_spend": float(dev_spend),
             "partner_spend": float(partner_spend),
             "direct_candidate_outreach_spend": float(direct_candidate_outreach_spend),
@@ -528,8 +532,7 @@ def main():
                 decisions = [
                     MonthlyDecision(
                         ads_spend=params["ads_spend"],
-                        seo_spend=params["seo_spend"],
-                        social_spend=params["social_spend"],
+                        organic_marketing_spend=params["organic_marketing_spend"],
                         dev_spend=params["dev_spend"],
                         partner_spend=params["partner_spend"],
                         direct_candidate_outreach_spend=params[
@@ -551,8 +554,7 @@ def main():
                 base_decisions = [
                     MonthlyDecision(
                         ads_spend=params["ads_spend"],
-                        seo_spend=params["seo_spend"],
-                        social_spend=params["social_spend"],
+                        organic_marketing_spend=params["organic_marketing_spend"],
                         dev_spend=params["dev_spend"],
                         partner_spend=params["partner_spend"],
                         direct_candidate_outreach_spend=params[
@@ -727,6 +729,31 @@ def main():
             plot_financial_health_score(df, ax=ax)
             st.pyplot(fig)
 
+        # New Enhanced Plots
+        st.header("📊 Enhanced Financial Visualizations")
+
+        # First row - Cash, Debt, Spend and Cost Breakdown
+        col1, col2 = st.columns(2)
+
+        with col1:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            plot_cash_debt_spend(df, ax=ax)
+            st.pyplot(fig)
+
+        with col2:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            plot_costs_breakdown(df, ax=ax)
+            st.pyplot(fig)
+
+        # Second row - Revenue Split (full width)
+        fig = plot_revenue_split(df)
+        st.pyplot(fig)
+
+        # Enhanced Dashboard (full width)
+        st.subheader("Complete Enhanced Dashboard")
+        fig = plot_enhanced_dashboard(df)
+        st.pyplot(fig)
+
         # Tables
         st.header("📋 Detailed Tables")
 
@@ -763,51 +790,20 @@ def main():
         decisions = st.session_state.get("decisions")
 
         with tempfile.TemporaryDirectory() as td:
-            out_path_output = str(Path(td) / "OTAI_Simulation_Output.xlsx")
-            out_path_detailed = str(Path(td) / "OTAI_Simulation_Detailed.xlsx")
-            out_path_nice = str(Path(td) / "OTAI_Simulation_Nice.xlsx")
+            out_path_report = str(Path(td) / "OTAI_Simulation_Report.xlsx")
 
-            export_simulation_output(
-                df, out_path=out_path_output, assumptions=a, monthly_decisions=decisions
-            )
-            export_detailed(
-                df,
-                out_path=out_path_detailed,
-                assumptions=a,
-                monthly_decisions=decisions,
-            )
-            export_nice(
-                df, out_path=out_path_nice, assumptions=a, monthly_decisions=decisions
+            export(
+                df, out_path=out_path_report, assumptions=a, monthly_decisions=decisions
             )
 
-            with open(out_path_output, "rb") as f:
-                b_output = f.read()
-            with open(out_path_detailed, "rb") as f:
-                b_detailed = f.read()
-            with open(out_path_nice, "rb") as f:
-                b_nice = f.read()
+            with open(out_path_report, "rb") as f:
+                b_report = f.read()
 
         with col1:
             st.download_button(
-                label="📄 Download Output",
-                data=b_output,
-                file_name="OTAI_Simulation_Output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-        with col2:
-            st.download_button(
-                label="🧾 Download Detailed",
-                data=b_detailed,
-                file_name="OTAI_Simulation_Detailed.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-        with col3:
-            st.download_button(
-                label="✨ Download Nice",
-                data=b_nice,
-                file_name="OTAI_Simulation_Nice.xlsx",
+                label="📊 Download Complete Report",
+                data=b_report,
+                file_name="OTAI_Simulation_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 

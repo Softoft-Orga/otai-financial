@@ -116,4 +116,4 @@ The simulation models a SaaS business with:
 - Marketing channels: Ads, SEO, and Social Media
 - Product development roadmap with feature launches
 - Partner channel for enterprise sales
-- Monthly recurring revenue model
+- One-time license fee model (no recurring revenue)

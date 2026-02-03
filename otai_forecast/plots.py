@@ -9,6 +9,320 @@ import seaborn as sns
 from matplotlib.ticker import FuncFormatter
 
 
+def plot_cash_debt_spend(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
+    """Plot cash position, debt, and spend over time.
+
+    Args:
+        df: DataFrame with simulation results
+        ax: Matplotlib axis to plot on. If None, creates new figure.
+
+    Returns:
+        The matplotlib axis with the plot
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 6))
+
+    # Calculate total spend per month
+    total_spend = (
+        df["ads_spend"]
+        + df["organic_marketing_spend"]
+        + df["dev_spend"]
+        + df["partner_spend"]
+        + df["direct_candidate_outreach_spend"]
+    )
+
+    # Plot cash position
+    ax.plot(
+        df["month"],
+        df["cash"],
+        label="Cash Position",
+        color="green",
+        linewidth=2,
+        marker="o",
+        markersize=4,
+    )
+
+    # Plot debt on secondary axis
+    ax2 = ax.twinx()
+    ax2.plot(
+        df["month"],
+        df["debt"],
+        label="Debt",
+        color="red",
+        linewidth=2,
+        marker="s",
+        markersize=4,
+    )
+    ax2.fill_between(df["month"], 0, df["debt"], alpha=0.2, color="red")
+
+    # Plot spend as bars on primary axis
+    ax.bar(
+        df["month"],
+        total_spend,
+        alpha=0.3,
+        label="Total Spend",
+        color="orange",
+        width=0.8,
+    )
+
+    # Formatting
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Cash (€) / Spend (€)", color="black")
+    ax2.set_ylabel("Debt (€)", color="red")
+    ax.tick_params(axis="y", labelcolor="black")
+    ax2.tick_params(axis="y", labelcolor="red")
+
+    # Combine legends
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+
+    ax.set_title(
+        "Cash Position, Debt, and Monthly Spend", fontsize=14, fontweight="bold"
+    )
+    ax.grid(True, alpha=0.3)
+
+    # Format y-axis to show values in thousands/millions
+    def format_currency(x, p):
+        if x >= 1e6:
+            return f"€{x / 1e6:.1f}M"
+        if x >= 1e3:
+            return f"€{x / 1e3:.0f}K"
+        return f"€{x:.0f}"
+
+    ax.yaxis.set_major_formatter(FuncFormatter(format_currency))
+    ax2.yaxis.set_major_formatter(FuncFormatter(format_currency))
+
+    return ax
+
+
+def plot_costs_breakdown(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
+    """Plot cost breakdown by expense type over time.
+
+    Args:
+        df: DataFrame with simulation results
+        ax: Matplotlib axis to plot on. If None, creates new figure.
+
+    Returns:
+        The matplotlib axis with the plot
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 6))
+
+    # Stack the cost components
+    cost_categories = [
+        "cost_sales_marketing",
+        "cost_rd_expense",
+        "cost_ga",
+        "cost_customer_support",
+        "cost_it_tools",
+        "cost_payment_processing",
+        "cost_outreach_conversion",
+        "cost_partner_commission",
+    ]
+
+    category_labels = [
+        "Sales & Marketing",
+        "R&D Expense",
+        "General & Admin",
+        "Customer Support",
+        "IT & Tools",
+        "Payment Processing",
+        "Outreach Conversion",
+        "Partner Commission",
+    ]
+
+    # Create stacked area plot
+    ax.stackplot(
+        df["month"],
+        *[df[cat] for cat in cost_categories],
+        labels=category_labels,
+        alpha=0.8,
+        colors=[
+            "#FF6B6B",  # Red
+            "#4ECDC4",  # Teal
+            "#45B7D1",  # Blue
+            "#96CEB4",  # Green
+            "#FFEAA7",  # Yellow
+            "#DDA0DD",  # Plum
+            "#FFA07A",  # Light Salmon
+            "#98D8C8",  # Mint
+        ],
+    )
+
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Costs (€)")
+    ax.set_title("Cost Breakdown by Expense Type", fontsize=14, fontweight="bold")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0)
+    ax.grid(True, alpha=0.3)
+
+    # Format y-axis
+    def format_currency(x, p):
+        if x >= 1e6:
+            return f"€{x / 1e6:.1f}M"
+        if x >= 1e3:
+            return f"€{x / 1e3:.0f}K"
+        return f"€{x:.0f}"
+
+    ax.yaxis.set_major_formatter(FuncFormatter(format_currency))
+
+    return ax
+
+
+def plot_revenue_split(
+    df: pd.DataFrame, ax: plt.Axes | None = None, embedded: bool = False
+) -> plt.Figure | plt.Axes:
+    """Plot revenue split by source and type.
+
+    Args:
+        df: DataFrame with simulation results
+        ax: Matplotlib axis to plot on. If None, creates new figure.
+        embedded: If True, creates a simplified version for embedding in dashboards
+
+    Returns:
+        The matplotlib figure with the plot (or axis if embedded=True)
+    """
+    if embedded and ax is not None:
+        # Create a simplified version for embedding
+        # Just plot license sales revenue
+        license_revenue = [
+            df["revenue_pro_website"],
+            df["revenue_pro_outreach"],
+            df["revenue_pro_partner"],
+            df["revenue_ent_website"],
+            df["revenue_ent_outreach"],
+            df["revenue_ent_partner"],
+        ]
+        license_labels = [
+            "Pro (Website)",
+            "Pro (Outreach)",
+            "Pro (Partner)",
+            "Ent (Website)",
+            "Ent (Outreach)",
+            "Ent (Partner)",
+        ]
+
+        ax.stackplot(
+            df["month"],
+            *license_revenue,
+            labels=license_labels,
+            alpha=0.8,
+            colors=[
+                "#3498db",  # Blue
+                "#2980b9",  # Dark Blue
+                "#1f618d",  # darker Blue
+                "#e74c3c",  # Red
+                "#c0392b",  # Dark Red
+                "#922b21",  # darker Red
+            ],
+        )
+        ax.set_title("License Sales Revenue", fontweight="bold")
+        ax.set_ylabel("Revenue (€)")
+        ax.legend(loc="upper left", fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+        # Format y-axis
+        def format_currency(x, p):
+            if x >= 1e6:
+                return f"€{x / 1e6:.1f}M"
+            if x >= 1e3:
+                return f"€{x / 1e3:.0f}K"
+            return f"€{x:.0f}"
+
+        ax.yaxis.set_major_formatter(FuncFormatter(format_currency))
+        ax.set_xlabel("Month")
+
+        return ax
+    # Always create a new figure with 2 subplots
+    fig, axes = plt.subplots(1, 2, figsize=(14, 8))
+    ax1, ax2 = axes
+    license_revenue = [
+        df["revenue_pro_website"],
+        df["revenue_pro_outreach"],
+        df["revenue_pro_partner"],
+        df["revenue_ent_website"],
+        df["revenue_ent_outreach"],
+        df["revenue_ent_partner"],
+    ]
+    license_labels = [
+        "Pro (Website)",
+        "Pro (Outreach)",
+        "Pro (Partner)",
+        "Ent (Website)",
+        "Ent (Outreach)",
+        "Ent (Partner)",
+    ]
+
+    ax1.stackplot(
+        df["month"],
+        *license_revenue,
+        labels=license_labels,
+        alpha=0.8,
+        colors=[
+            "#3498db",  # Blue
+            "#2980b9",  # Dark Blue
+            "#1f618d",  # darker Blue
+            "#e74c3c",  # Red
+            "#c0392b",  # Dark Red
+            "#922b21",  # darker Red
+        ],
+    )
+    ax1.set_title("License Sales Revenue", fontweight="bold")
+    ax1.set_ylabel("Revenue (€)")
+    ax1.legend(loc="upper left", fontsize=8)
+    ax1.grid(True, alpha=0.3)
+
+    # Recurring revenue subplot
+    recurring_revenue = [
+        df["revenue_renewal_pro"],
+        df["revenue_renewal_ent"],
+        df["revenue_support_pro"],
+        df["revenue_support_ent"],
+    ]
+    recurring_labels = [
+        "Renewals (Pro)",
+        "Renewals (Ent)",
+        "Support (Pro)",
+        "Support (Ent)",
+    ]
+
+    ax2.stackplot(
+        df["month"],
+        *recurring_revenue,
+        labels=recurring_labels,
+        alpha=0.8,
+        colors=[
+            "#27ae60",  # Green
+            "#229954",  # Dark Green
+            "#f39c12",  # Orange
+            "#d68910",  # Dark Orange
+        ],
+    )
+    ax2.set_title("Recurring Revenue", fontweight="bold")
+    ax2.set_ylabel("Revenue (€)")
+    ax2.legend(loc="upper left", fontsize=8)
+    ax2.grid(True, alpha=0.3)
+
+    # Format y-axes
+    def format_currency(x, p):
+        if x >= 1e6:
+            return f"€{x / 1e6:.1f}M"
+        if x >= 1e3:
+            return f"€{x / 1e3:.0f}K"
+        return f"€{x:.0f}"
+
+    ax1.yaxis.set_major_formatter(FuncFormatter(format_currency))
+    ax2.yaxis.set_major_formatter(FuncFormatter(format_currency))
+
+    # Set common x-label
+    plt.xlabel("Month")
+    plt.suptitle("Revenue Breakdown by Source and Type", fontsize=16, fontweight="bold")
+    plt.tight_layout()
+
+    # Return the figure
+    return fig
+
+
 def plot_results(df: pd.DataFrame, save_path: str | None = None) -> None:
     """Create plots for the simulation results.
 
@@ -1003,6 +1317,76 @@ def plot_growth_insights(df: pd.DataFrame, save_path: str | None = None) -> None
     ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
 
     plt.suptitle("Growth Insights Dashboard", fontsize=18, fontweight="bold")
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=160, bbox_inches="tight")
+
+    return fig
+
+
+def plot_enhanced_dashboard(
+    df: pd.DataFrame, save_path: str | None = None
+) -> plt.Figure:
+    """Create an enhanced dashboard with all new plotting functions.
+
+    Args:
+        df: DataFrame with simulation results
+        save_path: If provided, save the plot to this path
+
+    Returns:
+        The matplotlib figure object
+    """
+    # Create figure with subplots
+    fig = plt.figure(figsize=(20, 16))
+
+    # Create grid specification for better layout control
+    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+
+    # 1. Cash, Debt, and Spend (top, spanning 2 columns)
+    ax1 = fig.add_subplot(gs[0, :2])
+    plot_cash_debt_spend(df, ax=ax1)
+
+    # 2. Cost Breakdown (top, right)
+    ax2 = fig.add_subplot(gs[0, 2])
+    plot_costs_breakdown(df, ax=ax2)
+
+    # 3. Revenue Split (middle, spanning all columns)
+    ax3 = fig.add_subplot(gs[1, :])
+    plot_revenue_split(df, ax=ax3, embedded=True)
+
+    # 4. User Growth (bottom left)
+    ax4 = fig.add_subplot(gs[2, 0])
+    plot_user_growth(df, ax=ax4)
+
+    # 5. Revenue and Cashflow (bottom middle)
+    ax5 = fig.add_subplot(gs[2, 1])
+    plot_revenue_cashflow(df, ax=ax5)
+
+    # 6. Cash Position (bottom right)
+    ax6 = fig.add_subplot(gs[2, 2])
+    ax6.plot(df["month"], df["cash"], marker="o", color="purple")
+    ax6.set_title("Cash Position")
+    ax6.set_xlabel("Month")
+    ax6.set_ylabel("Cash (€)")
+    ax6.grid(True, alpha=0.3)
+
+    # Format currency on cash position plot
+    ax6.yaxis.set_major_formatter(
+        FuncFormatter(
+            lambda x, p: f"€{x / 1e6:.1f}M" if x >= 1e6 else f"€{x / 1e3:.0f}K"
+        )
+    )
+
+    # Add overall title
+    fig.suptitle(
+        "OTAI Financial Simulation - Enhanced Dashboard",
+        fontsize=20,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    # Adjust layout
     plt.tight_layout()
 
     if save_path:

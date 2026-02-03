@@ -9,8 +9,8 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     months=36,  # 3-year simulation horizon typical for SaaS financial planning
     starting_cash=25000.0,  # Initial seed capital - THIS IS DEFINITIVE
     base_organic_users_per_month=50.0,  # Reduced baseline organic traffic
-    cpc_eur=3.0,  # Legacy fallback - not used in current model (kept for compatibility)
     # CPC (Cost Per Click) parameters - realistic range for B2B SaaS is 1.5-7 EUR
+    cpc_eur=3.0,  # Fallback CPC if dynamic parameters not set
     cpc_base=2,  # Base CPC at low spend levels (best case scenario)
     cpc_sensitivity_factor=0.5,  # CPC scaling factor - controls how quickly CPC increases with spend (increased for stronger diminishing returns)
     cpc_ref_spend=1000.0,  # Reference spend level for CPC calculations

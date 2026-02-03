@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict
 
 from .models import (
     Assumptions,
@@ -650,7 +649,7 @@ def run_simulation_rows(a: Assumptions, decisions: MonthlyDecisions) -> list[dic
         state_next = calculate_new_state(state, monthly, a)
 
         row = {
-            **asdict(monthly),
+            **monthly.model_dump(),
             "cash": state_next.cash,
             "debt": state_next.debt,
             "domain_rating": state_next.domain_rating,

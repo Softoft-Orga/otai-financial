@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import replace
 
 from otai_forecast.compute import (
     calculate_new_monthly_data,
@@ -16,36 +15,36 @@ from otai_forecast.models import MonthlyDecision, State
 class TestCompute(unittest.TestCase):
     def setUp(self):
         # Start from defaults and only override test-specific values
-        self.a = replace(
-            DEFAULT_ASSUMPTIONS,
-            months=3,
-            starting_cash=100_000.0,
-            base_organic_users_per_month=2_000.0,
-            conv_web_to_lead=0.03,
-            conv_website_lead_to_free=0.20,
-            conv_website_lead_to_pro=0.03,
-            conv_website_lead_to_ent=0.002,
-            conv_outreach_lead_to_free=0.08,
-            conv_outreach_lead_to_pro=0.10,
-            conv_outreach_lead_to_ent=0.01,
-            conv_free_to_pro=0.08,
-            conv_pro_to_ent=0.02,
-            churn_free=0.15,
-            churn_pro=0.03,
-            churn_ent=0.01,
-            churn_pro_floor=0.01,
-            qualified_pool_total=20_000.0,
-            credit_cash_threshold=0.0,
-            credit_draw_amount=0.0,
-        )
+        self.a = DEFAULT_ASSUMPTIONS.model_copy(update={
+            "months": 3,
+            "starting_cash": 100_000.0,
+            "base_organic_users_per_month": 2_000.0,
+            "conv_web_to_lead": 0.03,
+            "conv_website_lead_to_free": 0.20,
+            "conv_website_lead_to_pro": 0.03,
+            "conv_website_lead_to_ent": 0.002,
+            "conv_outreach_lead_to_free": 0.08,
+            "conv_outreach_lead_to_pro": 0.10,
+            "conv_outreach_lead_to_ent": 0.01,
+            "conv_free_to_pro": 0.08,
+            "conv_pro_to_ent": 0.02,
+            "churn_free": 0.15,
+            "churn_pro": 0.03,
+            "churn_ent": 0.01,
+            "churn_pro_floor": 0.01,
+            "qualified_pool_total": 20_000.0,
+            "credit_cash_threshold": 0.0,
+            "credit_draw_amount": 0.0,
+        })
 
-        self.d = MonthlyDecision(
-            ads_spend=500.0,
-            organic_marketing_spend=300.0,
-            dev_spend=5000.0,
-            partner_spend=0.0,
-            direct_candidate_outreach_spend=0.0,
+        self.decision = MonthlyDecision(
+            ads_budget=500.0,
+            seo_budget=300.0,
+            dev_budget=5000.0,
+            partner_budget=0.0,
+            outreach_budget=0.0,
         )
+        self.d = self.decision  # Add alias for compatibility
 
         self.state = State(
             month=0,
@@ -57,6 +56,7 @@ class TestCompute(unittest.TestCase):
             pro_active=0.0,
             ent_active=0.0,
             partners_active=0.0,
+            qualified_pool_remaining=self.a.qualified_pool_total,
         )
 
     def test_clamp(self):

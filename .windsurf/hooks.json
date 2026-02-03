@@ -5,6 +5,11 @@
         "command": "cmd /c \"uv run ruff format . && uv run ruff check --fix .\"",
         "show_output": true,
         "working_directory": "."
+      },
+      {
+        "command": "python .windsurf/run_tests.py",
+        "show_output": true,
+        "working_directory": "."
       }
     ]
   }

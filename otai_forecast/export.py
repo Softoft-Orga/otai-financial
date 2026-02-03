@@ -4,9 +4,8 @@ from dataclasses import asdict, is_dataclass
 from io import BytesIO
 from typing import Any
 
-import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.figure import Figure
+import plotly.io as pio
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -316,16 +315,12 @@ def export(
     # Convert plots to image bytes
     image_bytes = {}
     for name, plot in plot_images.items():
+        if plot is None:
+            continue
         buf = BytesIO()
-        # Handle both Axes and Figures
-        if isinstance(plot, Figure):
-            plot.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-        else:
-            # For Axes, get the figure
-            plot.figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        buf.write(pio.to_image(plot, format="png", scale=2))
         buf.seek(0)
         image_bytes[name] = buf
-        plt.close(plot) if isinstance(plot, Figure) else plt.close(plot.figure)
 
     with pd.ExcelWriter(out_path, engine="openpyxl") as w:
         df_kpis.to_excel(w, index=False, sheet_name="Dashboard_KPIs")
@@ -435,8 +430,9 @@ def export(
         "Monthly_Decisions",
         "Monthly_Full",
     ]:
-        ws = wb[name]
-        for col_name in [
+        if name in wb.sheetnames:
+            ws = wb[name]
+            for col_name in [
             "cash",
             "debt",
             "revenue_total",
@@ -455,14 +451,14 @@ def export(
             "support_spend",
             "interest_payment",
         ]:
-            idx = None
-            for j in range(1, ws.max_column + 1):
-                if ws.cell(row=1, column=j).value == col_name:
-                    idx = j
-                    break
-            if idx:
-                for r in range(2, ws.max_row + 1):
-                    ws.cell(row=r, column=idx).number_format = '#,##0.00" €"'
+                idx = None
+                for j in range(1, ws.max_column + 1):
+                    if ws.cell(row=1, column=j).value == col_name:
+                            idx = j
+                            break
+                if idx:
+                    for r in range(2, ws.max_row + 1):
+                            ws.cell(row=r, column=idx).number_format = '#,##0.00" €"'
 
     wb.save(out_path)
 

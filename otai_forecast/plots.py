@@ -2,114 +2,156 @@
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from matplotlib.ticker import FuncFormatter
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+PLOTLY_TEMPLATE = "plotly_white"
+PLOTLY_COLORWAY = [
+    "#2563EB",
+    "#10B981",
+    "#F97316",
+    "#EF4444",
+    "#8B5CF6",
+    "#0EA5E9",
+    "#F59E0B",
+    "#14B8A6",
+]
 
 
-def plot_cash_debt_spend(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot cash position, debt, and spend over time.
+def _series_or_zeros(df: pd.DataFrame, column: str) -> pd.Series:
+    if column in df.columns:
+        return df[column]
+    return pd.Series(np.zeros(len(df)), index=df.index)
 
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
 
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
+def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    return (numerator / denominator.replace(0, np.nan)).fillna(0)
 
-    # Calculate total spend per month
+
+def _apply_currency_axis(
+    fig: go.Figure,
+    *,
+    title: str | None = None,
+    row: int | None = None,
+    col: int | None = None,
+    secondary_y: bool = False,
+) -> None:
+    fig.update_yaxes(
+        title_text=title,
+        tickprefix="€",
+        tickformat="~s",
+        row=row,
+        col=col,
+        secondary_y=secondary_y,
+    )
+
+
+def _apply_count_axis(
+    fig: go.Figure,
+    *,
+    title: str | None = None,
+    row: int | None = None,
+    col: int | None = None,
+    secondary_y: bool = False,
+) -> None:
+    fig.update_yaxes(
+        title_text=title,
+        tickformat="~s",
+        row=row,
+        col=col,
+        secondary_y=secondary_y,
+    )
+
+
+def _apply_percent_axis(
+    fig: go.Figure,
+    *,
+    title: str | None = None,
+    row: int | None = None,
+    col: int | None = None,
+    secondary_y: bool = False,
+) -> None:
+    fig.update_yaxes(
+        title_text=title,
+        tickformat=".1%",
+        row=row,
+        col=col,
+        secondary_y=secondary_y,
+    )
+
+
+def _add_traces_from_fig(
+    target_fig: go.Figure,
+    source_fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+) -> None:
+    for trace in source_fig.data:
+        secondary = getattr(trace, "yaxis", "y") == "y2"
+        target_fig.add_trace(trace, row=row, col=col, secondary_y=secondary)
+
+
+def plot_cash_debt_spend(df: pd.DataFrame) -> go.Figure:
+    """Plot cash position, debt, and spend over time."""
     total_spend = (
-        df["ads_spend"]
-        + df["organic_marketing_spend"]
-        + df["dev_spend"]
-        + df["partner_spend"]
-        + df["direct_candidate_outreach_spend"]
+        _series_or_zeros(df, "ads_spend")
+        + _series_or_zeros(df, "organic_marketing_spend")
+        + _series_or_zeros(df, "dev_spend")
+        + _series_or_zeros(df, "partner_spend")
+        + _series_or_zeros(df, "direct_candidate_outreach_spend")
     )
 
-    # Plot cash position
-    ax.plot(
-        df["month"],
-        df["cash"],
-        label="Cash Position",
-        color="green",
-        linewidth=2,
-        marker="o",
-        markersize=4,
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Bar(
+            x=df["month"],
+            y=total_spend,
+            name="Total Spend",
+            marker_color="#F97316",
+            opacity=0.4,
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "cash"),
+            name="Cash Position",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "debt"),
+            name="Debt",
+            mode="lines+markers",
+            line=dict(color="#EF4444", width=3),
+            fill="tozeroy",
+            fillcolor="rgba(239, 68, 68, 0.2)",
+        ),
+        secondary_y=True,
     )
 
-    # Plot debt on secondary axis
-    ax2 = ax.twinx()
-    ax2.plot(
-        df["month"],
-        df["debt"],
-        label="Debt",
-        color="red",
-        linewidth=2,
-        marker="s",
-        markersize=4,
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Cash Position, Debt, and Monthly Spend",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
-    ax2.fill_between(df["month"], 0, df["debt"], alpha=0.2, color="red")
-
-    # Plot spend as bars on primary axis
-    ax.bar(
-        df["month"],
-        total_spend,
-        alpha=0.3,
-        label="Total Spend",
-        color="orange",
-        width=0.8,
-    )
-
-    # Formatting
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Cash (€) / Spend (€)", color="black")
-    ax2.set_ylabel("Debt (€)", color="red")
-    ax.tick_params(axis="y", labelcolor="black")
-    ax2.tick_params(axis="y", labelcolor="red")
-
-    # Combine legends
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
-
-    ax.set_title(
-        "Cash Position, Debt, and Monthly Spend", fontsize=14, fontweight="bold"
-    )
-    ax.grid(True, alpha=0.3)
-
-    # Format y-axis to show values in thousands/millions
-    def format_currency(x, p):
-        if x >= 1e6:
-            return f"€{x / 1e6:.1f}M"
-        if x >= 1e3:
-            return f"€{x / 1e3:.0f}K"
-        return f"€{x:.0f}"
-
-    ax.yaxis.set_major_formatter(FuncFormatter(format_currency))
-    ax2.yaxis.set_major_formatter(FuncFormatter(format_currency))
-
-    return ax
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Cash / Spend (€)", row=1, col=1)
+    _apply_currency_axis(fig, title="Debt (€)", row=1, col=1, secondary_y=True)
+    return fig
 
 
-def plot_costs_breakdown(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot cost breakdown by expense type over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Stack the cost components
+def plot_costs_breakdown(df: pd.DataFrame) -> go.Figure:
+    """Plot cost breakdown by expense type over time."""
     cost_categories = [
         "cost_sales_marketing",
         "cost_rd_expense",
@@ -120,7 +162,6 @@ def plot_costs_breakdown(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Ax
         "cost_outreach_conversion",
         "cost_partner_commission",
     ]
-
     category_labels = [
         "Sales & Marketing",
         "R&D Expense",
@@ -131,118 +172,50 @@ def plot_costs_breakdown(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Ax
         "Outreach Conversion",
         "Partner Commission",
     ]
+    colors = [
+        "#F97316",
+        "#2563EB",
+        "#10B981",
+        "#EC4899",
+        "#14B8A6",
+        "#F59E0B",
+        "#8B5CF6",
+        "#64748B",
+    ]
 
-    # Create stacked area plot
-    ax.stackplot(
-        df["month"],
-        *[df[cat] for cat in cost_categories],
-        labels=category_labels,
-        alpha=0.8,
-        colors=[
-            "#FF6B6B",  # Red
-            "#4ECDC4",  # Teal
-            "#45B7D1",  # Blue
-            "#96CEB4",  # Green
-            "#FFEAA7",  # Yellow
-            "#DDA0DD",  # Plum
-            "#FFA07A",  # Light Salmon
-            "#98D8C8",  # Mint
-        ],
-    )
-
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Costs (€)")
-    ax.set_title("Cost Breakdown by Expense Type", fontsize=14, fontweight="bold")
-    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0)
-    ax.grid(True, alpha=0.3)
-
-    # Format y-axis
-    def format_currency(x, p):
-        if x >= 1e6:
-            return f"€{x / 1e6:.1f}M"
-        if x >= 1e3:
-            return f"€{x / 1e3:.0f}K"
-        return f"€{x:.0f}"
-
-    ax.yaxis.set_major_formatter(FuncFormatter(format_currency))
-
-    return ax
-
-
-def plot_revenue_split(
-    df: pd.DataFrame, ax: plt.Axes | None = None, embedded: bool = False
-) -> plt.Figure | plt.Axes:
-    """Plot revenue split by source and type.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-        embedded: If True, creates a simplified version for embedding in dashboards
-
-    Returns:
-        The matplotlib figure with the plot (or axis if embedded=True)
-    """
-    if embedded and ax is not None:
-        # Create a simplified version for embedding
-        # Just plot license sales revenue
-        license_revenue = [
-            df["revenue_pro_website"],
-            df["revenue_pro_outreach"],
-            df["revenue_pro_partner"],
-            df["revenue_ent_website"],
-            df["revenue_ent_outreach"],
-            df["revenue_ent_partner"],
-        ]
-        license_labels = [
-            "Pro (Website)",
-            "Pro (Outreach)",
-            "Pro (Partner)",
-            "Ent (Website)",
-            "Ent (Outreach)",
-            "Ent (Partner)",
-        ]
-
-        ax.stackplot(
-            df["month"],
-            *license_revenue,
-            labels=license_labels,
-            alpha=0.8,
-            colors=[
-                "#3498db",  # Blue
-                "#2980b9",  # Dark Blue
-                "#1f618d",  # darker Blue
-                "#e74c3c",  # Red
-                "#c0392b",  # Dark Red
-                "#922b21",  # darker Red
-            ],
+    fig = go.Figure()
+    for column, label, color in zip(cost_categories, category_labels, colors, strict=True):
+        fig.add_trace(
+            go.Scatter(
+                x=df["month"],
+                y=_series_or_zeros(df, column),
+                name=label,
+                stackgroup="costs",
+                mode="lines",
+                line=dict(width=0.5, color=color),
+            )
         )
-        ax.set_title("License Sales Revenue", fontweight="bold")
-        ax.set_ylabel("Revenue (€)")
-        ax.legend(loc="upper left", fontsize=8)
-        ax.grid(True, alpha=0.3)
 
-        # Format y-axis
-        def format_currency(x, p):
-            if x >= 1e6:
-                return f"€{x / 1e6:.1f}M"
-            if x >= 1e3:
-                return f"€{x / 1e3:.0f}K"
-            return f"€{x:.0f}"
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Cost Breakdown by Expense Type",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Costs (€)")
+    return fig
 
-        ax.yaxis.set_major_formatter(FuncFormatter(format_currency))
-        ax.set_xlabel("Month")
 
-        return ax
-    # Always create a new figure with 2 subplots
-    fig, axes = plt.subplots(1, 2, figsize=(14, 8))
-    ax1, ax2 = axes
-    license_revenue = [
-        df["revenue_pro_website"],
-        df["revenue_pro_outreach"],
-        df["revenue_pro_partner"],
-        df["revenue_ent_website"],
-        df["revenue_ent_outreach"],
-        df["revenue_ent_partner"],
+def plot_revenue_split(df: pd.DataFrame, *, embedded: bool = False) -> go.Figure:
+    """Plot revenue split by source and type."""
+    license_cols = [
+        "revenue_pro_website",
+        "revenue_pro_outreach",
+        "revenue_pro_partner",
+        "revenue_ent_website",
+        "revenue_ent_outreach",
+        "revenue_ent_partner",
     ]
     license_labels = [
         "Pro (Website)",
@@ -252,32 +225,20 @@ def plot_revenue_split(
         "Ent (Outreach)",
         "Ent (Partner)",
     ]
+    license_colors = [
+        "#2563EB",
+        "#1D4ED8",
+        "#1E40AF",
+        "#EF4444",
+        "#DC2626",
+        "#991B1B",
+    ]
 
-    ax1.stackplot(
-        df["month"],
-        *license_revenue,
-        labels=license_labels,
-        alpha=0.8,
-        colors=[
-            "#3498db",  # Blue
-            "#2980b9",  # Dark Blue
-            "#1f618d",  # darker Blue
-            "#e74c3c",  # Red
-            "#c0392b",  # Dark Red
-            "#922b21",  # darker Red
-        ],
-    )
-    ax1.set_title("License Sales Revenue", fontweight="bold")
-    ax1.set_ylabel("Revenue (€)")
-    ax1.legend(loc="upper left", fontsize=8)
-    ax1.grid(True, alpha=0.3)
-
-    # Recurring revenue subplot
-    recurring_revenue = [
-        df["revenue_renewal_pro"],
-        df["revenue_renewal_ent"],
-        df["revenue_support_pro"],
-        df["revenue_support_ent"],
+    recurring_cols = [
+        "revenue_renewal_pro",
+        "revenue_renewal_ent",
+        "revenue_support_pro",
+        "revenue_support_ent",
     ]
     recurring_labels = [
         "Renewals (Pro)",
@@ -285,1111 +246,1080 @@ def plot_revenue_split(
         "Support (Pro)",
         "Support (Ent)",
     ]
+    recurring_colors = ["#10B981", "#059669", "#F59E0B", "#D97706"]
 
-    ax2.stackplot(
-        df["month"],
-        *recurring_revenue,
-        labels=recurring_labels,
-        alpha=0.8,
-        colors=[
-            "#27ae60",  # Green
-            "#229954",  # Dark Green
-            "#f39c12",  # Orange
-            "#d68910",  # Dark Orange
-        ],
+    if embedded:
+        fig = go.Figure()
+        for column, label, color in zip(
+            license_cols, license_labels, license_colors, strict=True
+        ):
+            fig.add_trace(
+                go.Scatter(
+                    x=df["month"],
+                    y=_series_or_zeros(df, column),
+                    name=label,
+                    stackgroup="license",
+                    mode="lines",
+                    line=dict(width=0.5, color=color),
+                )
+            )
+        fig.update_layout(
+            template=PLOTLY_TEMPLATE,
+            title="License Sales Revenue",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        )
+        fig.update_xaxes(title_text="Month")
+        _apply_currency_axis(fig, title="Revenue (€)")
+        return fig
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("License Sales Revenue", "Recurring Revenue"),
     )
-    ax2.set_title("Recurring Revenue", fontweight="bold")
-    ax2.set_ylabel("Revenue (€)")
-    ax2.legend(loc="upper left", fontsize=8)
-    ax2.grid(True, alpha=0.3)
+    for column, label, color in zip(
+        license_cols, license_labels, license_colors, strict=True
+    ):
+        fig.add_trace(
+            go.Scatter(
+                x=df["month"],
+                y=_series_or_zeros(df, column),
+                name=label,
+                stackgroup="license",
+                mode="lines",
+                line=dict(width=0.5, color=color),
+            ),
+            row=1,
+            col=1,
+        )
+    for column, label, color in zip(
+        recurring_cols, recurring_labels, recurring_colors, strict=True
+    ):
+        fig.add_trace(
+            go.Scatter(
+                x=df["month"],
+                y=_series_or_zeros(df, column),
+                name=label,
+                stackgroup="recurring",
+                mode="lines",
+                line=dict(width=0.5, color=color),
+            ),
+            row=1,
+            col=2,
+        )
 
-    # Format y-axes
-    def format_currency(x, p):
-        if x >= 1e6:
-            return f"€{x / 1e6:.1f}M"
-        if x >= 1e3:
-            return f"€{x / 1e3:.0f}K"
-        return f"€{x:.0f}"
-
-    ax1.yaxis.set_major_formatter(FuncFormatter(format_currency))
-    ax2.yaxis.set_major_formatter(FuncFormatter(format_currency))
-
-    # Set common x-label
-    plt.xlabel("Month")
-    plt.suptitle("Revenue Breakdown by Source and Type", fontsize=16, fontweight="bold")
-    plt.tight_layout()
-
-    # Return the figure
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Revenue Breakdown by Source and Type",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month", row=1, col=1)
+    fig.update_xaxes(title_text="Month", row=1, col=2)
+    _apply_currency_axis(fig, title="Revenue (€)", row=1, col=1)
+    _apply_currency_axis(fig, title="Revenue (€)", row=1, col=2)
     return fig
 
 
-def plot_results(df: pd.DataFrame, save_path: str | None = None) -> None:
-    """Create plots for the simulation results.
-
-    Args:
-        df: DataFrame with simulation results
-        save_path: If provided, save the plot to this path
-    """
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle("OTAI Financial Simulation Results", fontsize=16)
-
-    # Plot 1: User Growth
-    axes[0, 0].plot(df["month"], df["free_active"], label="Free Users", marker="o")
-    axes[0, 0].plot(df["month"], df["pro_active"], label="Pro Users", marker="o")
-    axes[0, 0].plot(df["month"], df["ent_active"], label="Enterprise Users", marker="o")
-    axes[0, 0].set_title("User Growth Over Time")
-    axes[0, 0].set_xlabel("Month")
-    axes[0, 0].set_ylabel("Number of Users")
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-
-    # Plot 2: Revenue and Cashflow
-    ax2_twin = axes[0, 1].twinx()
-    axes[0, 1].plot(
-        df["month"], df["revenue_total"], color="green", label="Revenue", marker="o"
+def plot_results(df: pd.DataFrame, save_path: str | None = None) -> go.Figure:
+    """Create plots for the simulation results."""
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        subplot_titles=(
+            "User Growth Over Time",
+            "Revenue and Net Cashflow",
+            "Cash Position",
+            "Market Cap (TTM Revenue × Multiple)",
+        ),
+        specs=[[{}, {"secondary_y": True}], [{}, {}]],
     )
-    ax2_twin.plot(
-        df["month"], df["net_cashflow"], color="blue", label="Net Cashflow", marker="s"
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "free_active"),
+            name="Free Users",
+            mode="lines+markers",
+        ),
+        row=1,
+        col=1,
     )
-    axes[0, 1].set_title("Revenue and Net Cashflow")
-    axes[0, 1].set_xlabel("Month")
-    axes[0, 1].set_ylabel("Revenue (€)", color="green")
-    ax2_twin.set_ylabel("Net Cashflow (€)", color="blue")
-    axes[0, 1].grid(True, alpha=0.3)
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "pro_active"),
+            name="Pro Users",
+            mode="lines+markers",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "ent_active"),
+            name="Enterprise Users",
+            mode="lines+markers",
+        ),
+        row=1,
+        col=1,
+    )
 
-    # Combine legends
-    lines1, labels1 = axes[0, 1].get_legend_handles_labels()
-    lines2, labels2 = ax2_twin.get_legend_handles_labels()
-    axes[0, 1].legend(lines1 + lines2, labels1 + labels2)
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "revenue_total"),
+            name="Revenue",
+            mode="lines+markers",
+            line=dict(color="#10B981"),
+        ),
+        row=1,
+        col=2,
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "net_cashflow"),
+            name="Net Cashflow",
+            mode="lines+markers",
+            line=dict(color="#2563EB"),
+        ),
+        row=1,
+        col=2,
+        secondary_y=True,
+    )
 
-    # Plot 3: Cash Position
-    axes[1, 0].plot(df["month"], df["cash"], marker="o", color="purple")
-    axes[1, 0].set_title("Cash Position")
-    axes[1, 0].set_xlabel("Month")
-    axes[1, 0].set_ylabel("Cash (€)")
-    axes[1, 0].grid(True, alpha=0.3)
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "cash"),
+            name="Cash Position",
+            mode="lines+markers",
+            line=dict(color="#8B5CF6"),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "market_cap"),
+            name="Market Cap",
+            mode="lines+markers",
+            line=dict(color="#F97316"),
+        ),
+        row=2,
+        col=2,
+    )
 
-    # Plot 4: Market Cap
-    axes[1, 1].plot(df["month"], df["market_cap"], label="Market Cap", marker="o")
-    axes[1, 1].set_title("Market Cap (TTM Revenue × Multiple)")
-    axes[1, 1].set_xlabel("Month")
-    axes[1, 1].set_ylabel("€")
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-
-    plt.tight_layout()
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="OTAI Financial Simulation Results",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="left", x=0),
+        colorway=PLOTLY_COLORWAY,
+        height=750,
+    )
+    for row in (1, 2):
+        for col in (1, 2):
+            fig.update_xaxes(title_text="Month", row=row, col=col)
+    _apply_count_axis(fig, title="Active Users", row=1, col=1)
+    _apply_currency_axis(fig, title="Revenue (€)", row=1, col=2, secondary_y=False)
+    _apply_currency_axis(fig, title="Net Cashflow (€)", row=1, col=2, secondary_y=True)
+    _apply_currency_axis(fig, title="Cash (€)", row=2, col=1)
+    _apply_currency_axis(fig, title="Market Cap (€)", row=2, col=2)
 
     if save_path:
-        fig.savefig(save_path, dpi=160)
+        fig.write_image(save_path, scale=2)
 
     return fig
 
 
-def plot_user_growth(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot user growth over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(df["month"], df["free_active"], label="Free Users", marker="o")
-    ax.plot(df["month"], df["pro_active"], label="Pro Users", marker="o")
-    ax.plot(df["month"], df["ent_active"], label="Enterprise Users", marker="o")
-    ax.set_title("User Growth Over Time")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Number of Users")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    return ax
-
-
-def plot_revenue_cashflow(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot revenue and cashflow over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _fig, ax = plt.subplots(figsize=(10, 6))
-    else:
-        pass
-
-    ax2_twin = ax.twinx()
-    ax.plot(
-        df["month"], df["revenue_total"], color="green", label="Revenue", marker="o"
+def plot_user_growth(df: pd.DataFrame) -> go.Figure:
+    """Plot user growth over time."""
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "free_active"),
+            name="Free Users",
+            mode="lines+markers",
+        )
     )
-    ax2_twin.plot(
-        df["month"], df["net_cashflow"], color="blue", label="Net Cashflow", marker="s"
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "pro_active"),
+            name="Pro Users",
+            mode="lines+markers",
+        )
     )
-    ax.set_title("Revenue and Net Cashflow")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Revenue (€)", color="green")
-    ax2_twin.set_ylabel("Net Cashflow (€)", color="blue")
-    ax.grid(True, alpha=0.3)
-
-    # Combine legends
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2_twin.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2)
-
-    return ax
-
-
-def plot_cash_position(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot cash position over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(df["month"], df["cash"], marker="o", color="purple")
-    ax.set_title("Cash Position")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Cash (€)")
-    ax.grid(True, alpha=0.3)
-
-    return ax
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "ent_active"),
+            name="Enterprise Users",
+            mode="lines+markers",
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="User Growth Over Time",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        colorway=PLOTLY_COLORWAY,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_count_axis(fig, title="Active Users")
+    return fig
 
 
-def plot_market_cap(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot market cap over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(df["month"], df["market_cap"], label="Market Cap", marker="o")
-    ax.set_title("Market Cap (TTM Revenue × Multiple)")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("€")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    return ax
-
-
-def plot_monthly_revenue(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot monthly revenue over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(df["month"], df["revenue_total"], marker="o", color="green")
-    ax.set_title("Monthly Revenue")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Revenue (€)")
-    ax.grid(True, alpha=0.3)
-
-    return ax
+def plot_revenue_cashflow(df: pd.DataFrame) -> go.Figure:
+    """Plot revenue and cashflow over time."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "revenue_total"),
+            name="Revenue",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "net_cashflow"),
+            name="Net Cashflow",
+            mode="lines+markers",
+            line=dict(color="#2563EB", width=3),
+        ),
+        secondary_y=True,
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Revenue and Net Cashflow",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Revenue (€)", row=1, col=1, secondary_y=False)
+    _apply_currency_axis(fig, title="Net Cashflow (€)", row=1, col=1, secondary_y=True)
+    return fig
 
 
-def plot_product_value(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot product value over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(df["month"], df["product_value"], marker="o", color="red")
-    ax.set_title("Product Value Over Time")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Product Value")
-    ax.grid(True, alpha=0.3)
-
-    return ax
-
-
-def plot_leads(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot leads over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-
-    ax.plot(df["month"], df["leads_total"], label="Total Leads", marker="o")
-    ax.set_title("Leads Over Time")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Count")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    return ax
+def plot_cash_position(df: pd.DataFrame) -> go.Figure:
+    """Plot cash position over time."""
+    fig = go.Figure(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "cash"),
+            mode="lines+markers",
+            name="Cash",
+            line=dict(color="#8B5CF6", width=3),
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Cash Position",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Cash (€)")
+    return fig
 
 
-def plot_net_cashflow(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot net cashflow over time.
+def plot_market_cap(df: pd.DataFrame) -> go.Figure:
+    """Plot market cap over time."""
+    fig = go.Figure(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "market_cap"),
+            mode="lines+markers",
+            name="Market Cap",
+            line=dict(color="#F97316", width=3),
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Market Cap (TTM Revenue × Multiple)",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Market Cap (€)")
+    return fig
 
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
 
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
+def plot_monthly_revenue(df: pd.DataFrame) -> go.Figure:
+    """Plot monthly revenue over time."""
+    fig = go.Figure(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "revenue_total"),
+            mode="lines+markers",
+            name="Revenue",
+            line=dict(color="#10B981", width=3),
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Monthly Revenue",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Revenue (€)")
+    return fig
 
-    ax.plot(df["month"], df["net_cashflow"], marker="o", color="orange")
-    ax.set_title("Monthly Net Cashflow")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Net cashflow (€)")
-    ax.grid(True, alpha=0.3)
 
-    return ax
+def plot_product_value(df: pd.DataFrame) -> go.Figure:
+    """Plot product value over time."""
+    fig = go.Figure(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "product_value"),
+            mode="lines+markers",
+            name="Product Value",
+            line=dict(color="#EF4444", width=3),
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Product Value Over Time",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    fig.update_yaxes(title_text="Product Value")
+    return fig
 
 
-def plot_ttm_revenue(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot TTM revenue over time.
+def plot_leads(df: pd.DataFrame) -> go.Figure:
+    """Plot leads over time."""
+    fig = go.Figure(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "leads_total"),
+            mode="lines+markers",
+            name="Total Leads",
+            line=dict(color="#0EA5E9", width=3),
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Leads Over Time",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_count_axis(fig, title="Leads")
+    return fig
 
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
 
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
+def plot_net_cashflow(df: pd.DataFrame) -> go.Figure:
+    """Plot net cashflow over time."""
+    fig = go.Figure(
+        go.Bar(
+            x=df["month"],
+            y=_series_or_zeros(df, "net_cashflow"),
+            name="Net Cashflow",
+            marker_color="#F59E0B",
+        )
+    )
+    fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="#94A3B8")
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Monthly Net Cashflow",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Net Cashflow (€)")
+    return fig
 
-    ax.plot(df["month"], df["revenue_ttm"], marker="o", color="teal")
-    ax.set_title("TTM Revenue")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("TTM Revenue (€)")
-    ax.grid(True, alpha=0.3)
 
-    return ax
+def plot_ttm_revenue(df: pd.DataFrame) -> go.Figure:
+    """Plot TTM revenue over time."""
+    fig = go.Figure(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "revenue_ttm"),
+            mode="lines+markers",
+            name="TTM Revenue",
+            line=dict(color="#14B8A6", width=3),
+        )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="TTM Revenue",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="TTM Revenue (€)")
+    return fig
 
 
 # ===== IMPROVED AND NEW PLOTTING FUNCTIONS =====
 
 
-def plot_user_growth_stacked(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot user growth as stacked area chart for better visualization of composition.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Create stacked area chart
-    ax.stackplot(
-        df["month"],
-        df["free_active"],
-        df["pro_active"],
-        df["ent_active"],
-        labels=["Free Users", "Pro Users", "Enterprise Users"],
-        alpha=0.8,
-        colors=["#3498db", "#2ecc71", "#e74c3c"],
+def plot_user_growth_stacked(df: pd.DataFrame) -> go.Figure:
+    """Plot user growth as stacked area chart for composition insights."""
+    fig = go.Figure()
+    colors = ["#2563EB", "#10B981", "#EF4444"]
+    for series, label, color in zip(
+        ["free_active", "pro_active", "ent_active"],
+        ["Free Users", "Pro Users", "Enterprise Users"],
+        colors,
+        strict=True,
+    ):
+        fig.add_trace(
+            go.Scatter(
+                x=df["month"],
+                y=_series_or_zeros(df, series),
+                name=label,
+                stackgroup="users",
+                mode="lines",
+                line=dict(width=0.5, color=color),
+            )
+        )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="User Growth - Stacked View",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
+    fig.update_xaxes(title_text="Month")
+    _apply_count_axis(fig, title="Active Users")
+    return fig
 
-    ax.set_title("User Growth - Stacked View", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Number of Users", fontsize=12)
-    ax.legend(loc="upper left")
-    ax.grid(True, alpha=0.3)
 
-    # Format y-axis to show values in K/M
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"{x / 1000:.0f}K" if x < 1000000 else f"{x / 1000000:.1f}M"
+def plot_revenue_breakdown(df: pd.DataFrame) -> go.Figure:
+    """Plot revenue breakdown by tier using stacked bars."""
+    revenue_total = _series_or_zeros(df, "revenue_total")
+    if "revenue_pro" in df.columns and "revenue_ent" in df.columns:
+        revenue_pro = _series_or_zeros(df, "revenue_pro")
+        revenue_ent = _series_or_zeros(df, "revenue_ent")
+    else:
+        revenue_pro = revenue_total * 0.7
+        revenue_ent = revenue_total * 0.3
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=df["month"],
+            y=revenue_pro,
+            name="Pro Revenue",
+            marker_color="#10B981",
         )
     )
-
-    return ax
-
-
-def plot_revenue_breakdown(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot revenue breakdown by user tier with stacked bars.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Calculate revenue by tier if not present
-    if "revenue_pro" not in df.columns:
-        # Estimate based on typical pricing ratios
-        df["revenue_pro"] = df["revenue_total"] * 0.7
-        df["revenue_ent"] = df["revenue_total"] * 0.3
-
-    # Create stacked bar chart
-    width = 0.8
-    ax.bar(
-        df["month"],
-        df["revenue_pro"],
-        width,
-        label="Pro Revenue",
-        color="#2ecc71",
-        alpha=0.8,
-    )
-    ax.bar(
-        df["month"],
-        df["revenue_ent"],
-        width,
-        bottom=df["revenue_pro"],
-        label="Enterprise Revenue",
-        color="#e74c3c",
-        alpha=0.8,
-    )
-
-    ax.set_title("Revenue Breakdown by Tier", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Revenue (€)", fontsize=12)
-    ax.legend(loc="upper left")
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # Format y-axis as currency
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"€{x / 1000:.0f}K" if x < 1000000 else f"€{x / 1000000:.1f}M"
+    fig.add_trace(
+        go.Bar(
+            x=df["month"],
+            y=revenue_ent,
+            name="Enterprise Revenue",
+            marker_color="#EF4444",
         )
     )
-
-    return ax
-
-
-def plot_cash_burn_rate(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot cash burn rate with runway analysis.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Calculate burn rate (negative cashflow is burn)
-    burn_rate = -df["net_cashflow"].clip(upper=0)
-
-    # Create twin axis for cash position
-    ax2 = ax.twinx()
-
-    # Plot cash position as area
-    ax.fill_between(
-        df["month"], df["cash"], alpha=0.3, color="green", label="Cash Position"
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Revenue Breakdown by Tier",
+        barmode="stack",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
-    ax.plot(df["month"], df["cash"], color="green", linewidth=2)
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Revenue (€)")
+    return fig
 
-    # Plot burn rate as bars
-    ax2.bar(df["month"], burn_rate, alpha=0.6, color="red", label="Burn Rate")
 
-    # Add zero cash line if it occurs
+def plot_cash_burn_rate(df: pd.DataFrame) -> go.Figure:
+    """Plot cash burn rate with runway analysis."""
+    burn_rate = -_series_or_zeros(df, "net_cashflow").clip(upper=0)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "cash"),
+            name="Cash Position",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=df["month"],
+            y=burn_rate,
+            name="Burn Rate",
+            marker_color="#EF4444",
+            opacity=0.6,
+        ),
+        secondary_y=True,
+    )
+
     min_cash_idx = df["cash"].idxmin() if df["cash"].min() < 0 else None
     if min_cash_idx is not None:
-        ax.axvline(
-            x=min_cash_idx,
-            color="red",
-            linestyle="--",
-            alpha=0.8,
-            label="Cash Depleted",
+        fig.add_vline(
+            x=df.loc[min_cash_idx, "month"],
+            line_dash="dash",
+            line_color="#EF4444",
+            annotation_text="Cash depleted",
+            annotation_position="top",
         )
 
-    ax.set_title("Cash Position & Burn Rate Analysis", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Cash Position (€)", fontsize=12, color="green")
-    ax2.set_ylabel("Burn Rate (€/month)", fontsize=12, color="red")
-
-    # Format axes
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"€{x / 1000:.0f}K" if x < 1000000 else f"€{x / 1000000:.1f}M"
-        )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Cash Position & Burn Rate Analysis",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
-    ax2.yaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"€{x / 1000:.0f}K" if x < 1000000 else f"€{x / 1000000:.1f}M"
-        )
-    )
-
-    # Combine legends
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
-
-    ax.grid(True, alpha=0.3)
-
-    return ax
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Cash (€)", row=1, col=1, secondary_y=False)
+    _apply_currency_axis(fig, title="Burn Rate (€ / month)", row=1, col=1, secondary_y=True)
+    return fig
 
 
-def plot_conversion_funnel(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot conversion funnel as a waterfall chart.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 8))
-
-    # Get latest month data
+def plot_conversion_funnel(df: pd.DataFrame) -> go.Figure:
+    """Plot conversion funnel for the latest month."""
     latest = df.iloc[-1]
-
-    # Funnel stages
     stages = ["Website Users", "Leads", "Free Users", "Pro Users", "Enterprise Users"]
     values = [
-        latest.get(
-            "website_users", latest.get("leads_total", 0) * 10
-        ),  # Estimate if not available
-        latest["leads_total"],
-        latest["free_active"],
-        latest["pro_active"],
-        latest["ent_active"],
+        latest.get("website_users", latest.get("leads_total", 0) * 10),
+        latest.get("leads_total", 0),
+        latest.get("free_active", 0),
+        latest.get("pro_active", 0),
+        latest.get("ent_active", 0),
     ]
 
-    # Calculate conversion rates
-    conversion_rates = [
-        values[i] / values[i - 1] * 100 if values[i - 1] > 0 else 0
-        for i in range(1, len(values))
-    ]
-
-    # Create funnel bar chart
-    y_pos = range(len(stages))
-    bars = ax.barh(
-        y_pos,
-        values,
-        alpha=0.8,
-        color=["#3498db", "#9b59b6", "#2ecc71", "#f39c12", "#e74c3c"],
-    )
-
-    # Add conversion rate labels
-    for i, (bar, rate) in enumerate(zip(bars[1:], conversion_rates)):
-        ax.text(
-            bar.get_width() + max(values) * 0.01,
-            bar.get_y() + bar.get_height() / 2,
-            f"{rate:.1f}%",
-            va="center",
-            fontweight="bold",
-        )
-
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(stages)
-    ax.set_xlabel("Count", fontsize=12)
-    ax.set_title(
-        f"Conversion Funnel - Month {latest['month']}", fontsize=14, fontweight="bold"
-    )
-    ax.grid(True, alpha=0.3, axis="x")
-
-    # Format x-axis
-    ax.xaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"{x / 1000:.0f}K" if x < 1000000 else f"{x / 1000000:.1f}M"
+    fig = go.Figure(
+        go.Funnel(
+            y=stages,
+            x=values,
+            textinfo="value+percent previous",
+            marker=dict(color=["#2563EB", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444"]),
         )
     )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title=f"Conversion Funnel - Month {latest.get('month', '')}",
+        hovermode="y",
+    )
+    _apply_count_axis(fig, title="Count")
+    return fig
 
-    return ax
 
-
-def plot_ltv_cac_analysis(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot LTV vs CAC analysis over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Estimate CAC from sales costs
+def plot_ltv_cac_analysis(df: pd.DataFrame) -> go.Figure:
+    """Plot LTV vs CAC analysis over time."""
+    new_pro = (
+        df["new_pro"]
+        if "new_pro" in df.columns
+        else _series_or_zeros(df, "pro_active").diff().fillna(0)
+    )
+    new_ent = (
+        df["new_ent"]
+        if "new_ent" in df.columns
+        else _series_or_zeros(df, "ent_active").diff().fillna(0)
+    )
+    total_new_customers = new_pro + new_ent
     if "sales_spend" in df.columns:
-        new_pro = (
-            df["new_pro"]
-            if "new_pro" in df.columns
-            else df["pro_active"].diff().fillna(df["pro_active"])
-        )
-        new_ent = (
-            df["new_ent"]
-            if "new_ent" in df.columns
-            else df["ent_active"].diff().fillna(df["ent_active"])
-        )
-        total_new_customers = new_pro + new_ent
-        cac = df["sales_spend"] / total_new_customers.replace(0, np.nan)
+        cac = _safe_divide(_series_or_zeros(df, "sales_spend"), total_new_customers)
     else:
-        # Estimate CAC as percentage of revenue
-        cac = df["revenue_total"] * 0.2  # Assume 20% of revenue for sales
+        cac = _series_or_zeros(df, "revenue_total") * 0.2
 
-    # Estimate LTV based on customer lifetime and monthly revenue
-    if "churn_pro" in df.columns and "churn_ent" in df.columns:
-        avg_monthly_revenue = (
-            df["revenue_total"] / (df["pro_active"] + df["ent_active"])
-        ).replace(0, np.nan)
-        ltv_pro = (
-            avg_monthly_revenue / df["churn_pro"]
-            if "churn_pro" in df.columns
-            else avg_monthly_revenue * 24
-        )
-        ltv_ent = ltv_pro * 5  # Enterprise typically 5x Pro
-        ltv = (ltv_pro * df["pro_active"] + ltv_ent * df["ent_active"]) / (
-            df["pro_active"] + df["ent_active"]
-        )
+    active_paid = _series_or_zeros(df, "pro_active") + _series_or_zeros(df, "ent_active")
+    avg_monthly_revenue = _safe_divide(_series_or_zeros(df, "revenue_total"), active_paid)
+
+    if "churn_pro" in df.columns:
+        ltv_pro = _safe_divide(avg_monthly_revenue, _series_or_zeros(df, "churn_pro"))
     else:
-        ltv = cac * 3  # Default 3:1 LTV:CAC ratio
-
-    # Plot LTV and CAC
-    ax.plot(df["month"], ltv, marker="o", linewidth=2, label="LTV", color="#2ecc71")
-    ax.plot(df["month"], cac, marker="s", linewidth=2, label="CAC", color="#e74c3c")
-
-    # Add LTV:CAC ratio line
-    ltv_cac_ratio = ltv / cac
-    ax2 = ax.twinx()
-    ax2.plot(
-        df["month"],
-        ltv_cac_ratio,
-        marker="d",
-        linewidth=2,
-        alpha=0.7,
-        label="LTV:CAC Ratio",
-        color="#9b59b6",
-    )
-    ax2.axhline(y=3, color="gray", linestyle="--", alpha=0.5, label="Target (3:1)")
-
-    ax.set_title("LTV vs CAC Analysis", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Value (€)", fontsize=12)
-    ax2.set_ylabel("LTV:CAC Ratio", fontsize=12)
-
-    # Format axes
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"€{x / 1000:.0f}K" if x < 1000000 else f"€{x / 1000000:.1f}M"
-        )
+        ltv_pro = avg_monthly_revenue * 24
+    ltv_ent = ltv_pro * 5
+    ltv = _safe_divide(
+        ltv_pro * _series_or_zeros(df, "pro_active")
+        + ltv_ent * _series_or_zeros(df, "ent_active"),
+        active_paid,
     )
 
-    # Legends
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+    ltv_cac_ratio = _safe_divide(ltv, cac)
 
-    ax.grid(True, alpha=0.3)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=ltv,
+            name="LTV",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=cac,
+            name="CAC",
+            mode="lines+markers",
+            line=dict(color="#EF4444", width=3),
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=ltv_cac_ratio,
+            name="LTV:CAC Ratio",
+            mode="lines+markers",
+            line=dict(color="#8B5CF6", width=2, dash="dot"),
+        ),
+        secondary_y=True,
+    )
+    fig.add_shape(
+        type="line",
+        xref="x",
+        yref="y2",
+        x0=df["month"].min(),
+        x1=df["month"].max(),
+        y0=3,
+        y1=3,
+        line=dict(color="#94A3B8", dash="dash"),
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="LTV vs CAC Analysis",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Value (€)", row=1, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="LTV:CAC Ratio", row=1, col=1, secondary_y=True)
+    return fig
 
-    return ax
 
-
-def plot_unit_economics(df: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Plot detailed unit economics including ARPU, margins, etc.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Calculate metrics
-    total_users = df["free_active"] + df["pro_active"] + df["ent_active"]
-    arpu = df["revenue_total"] / total_users.replace(0, np.nan)
-
-    # Estimate costs
+def plot_unit_economics(df: pd.DataFrame) -> go.Figure:
+    """Plot detailed unit economics including ARPU, costs, and margins."""
+    total_users = (
+        _series_or_zeros(df, "free_active")
+        + _series_or_zeros(df, "pro_active")
+        + _series_or_zeros(df, "ent_active")
+    )
+    arpu = _safe_divide(_series_or_zeros(df, "revenue_total"), total_users)
     if "costs_ex_tax" in df.columns:
-        cost_per_user = df["costs_ex_tax"] / total_users.replace(0, np.nan)
+        cost_per_user = _safe_divide(_series_or_zeros(df, "costs_ex_tax"), total_users)
         margin_per_user = arpu - cost_per_user
     else:
-        # Estimate costs as 70% of revenue
         cost_per_user = arpu * 0.7
         margin_per_user = arpu * 0.3
+    margin_pct = _safe_divide(margin_per_user, arpu)
 
-    # Plot metrics
-    ax.plot(df["month"], arpu, marker="o", linewidth=2, label="ARPU", color="#2ecc71")
-    ax.plot(
-        df["month"],
-        cost_per_user,
-        marker="s",
-        linewidth=2,
-        label="Cost per User",
-        color="#e74c3c",
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=arpu,
+            name="ARPU",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),
+        ),
+        secondary_y=False,
     )
-    ax.plot(
-        df["month"],
-        margin_per_user,
-        marker="^",
-        linewidth=2,
-        label="Margin per User",
-        color="#3498db",
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=cost_per_user,
+            name="Cost per User",
+            mode="lines+markers",
+            line=dict(color="#EF4444", width=3),
+        ),
+        secondary_y=False,
     )
-
-    # Add margin percentage on secondary axis
-    ax2 = ax.twinx()
-    margin_pct = (margin_per_user / arpu * 100).fillna(0)
-    ax2.plot(
-        df["month"],
-        margin_pct,
-        marker="d",
-        linewidth=2,
-        alpha=0.7,
-        label="Margin %",
-        color="#9b59b6",
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=margin_per_user,
+            name="Margin per User",
+            mode="lines+markers",
+            line=dict(color="#2563EB", width=3),
+        ),
+        secondary_y=False,
     )
-    ax2.axhline(y=0, color="gray", linestyle="-", alpha=0.3)
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=margin_pct,
+            name="Margin %",
+            mode="lines+markers",
+            line=dict(color="#8B5CF6", width=2, dash="dot"),
+        ),
+        secondary_y=True,
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Unit Economics Analysis",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Per User (€)", row=1, col=1, secondary_y=False)
+    _apply_percent_axis(fig, title="Margin %", row=1, col=1, secondary_y=True)
+    return fig
 
-    ax.set_title("Unit Economics Analysis", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Per User (€)", fontsize=12)
-    ax2.set_ylabel("Margin (%)", fontsize=12)
 
-    # Format axes
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"€{x:.0f}"))
-
-    # Legends
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
-
-    ax.grid(True, alpha=0.3)
-
-    return ax
-
-
-def plot_growth_metrics_heatmap(
-    df: pd.DataFrame, ax: plt.Axes | None = None
-) -> plt.Axes:
-    """Plot growth metrics as a heatmap for quick insights.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 8))
-
-    # Select key metrics for heatmap
+def plot_growth_metrics_heatmap(df: pd.DataFrame) -> go.Figure:
+    """Plot growth metrics as a heatmap for quick insights."""
     metrics = {
-        "Revenue Growth": df["revenue_total"].pct_change().fillna(0),
-        "User Growth": (df["pro_active"] + df["ent_active"]).pct_change().fillna(0),
-        "Cash Growth": df["cash"].pct_change().fillna(0),
-        "Market Cap Growth": df["market_cap"].pct_change().fillna(0),
-        "Net Cashflow": df["net_cashflow"] / 1000,  # in K
-        "Profit Margin": (df["net_cashflow"] / df["revenue_total"]).fillna(0),
+        "Revenue Growth": _series_or_zeros(df, "revenue_total").pct_change().fillna(0),
+        "User Growth": (
+            _series_or_zeros(df, "pro_active") + _series_or_zeros(df, "ent_active")
+        )
+        .pct_change()
+        .fillna(0),
+        "Cash Growth": _series_or_zeros(df, "cash").pct_change().fillna(0),
+        "Market Cap Growth": _series_or_zeros(df, "market_cap").pct_change().fillna(0),
+        "Net Cashflow (K€)": _series_or_zeros(df, "net_cashflow") / 1000,
+        "Profit Margin": _safe_divide(
+            _series_or_zeros(df, "net_cashflow"),
+            _series_or_zeros(df, "revenue_total"),
+        ),
     }
+    metrics_df = pd.DataFrame(metrics)
+    normalized = (metrics_df - metrics_df.mean()) / metrics_df.std().replace(0, np.nan)
+    normalized = normalized.fillna(0)
 
-    # Create heatmap data
-    heatmap_data = pd.DataFrame(metrics)
+    text_rows: list[list[str]] = []
+    for metric in metrics_df.columns:
+        values = metrics_df[metric]
+        if "Cashflow" in metric:
+            text_rows.append([f"€{value:,.1f}K" for value in values])
+        else:
+            text_rows.append([f"{value:.1%}" for value in values])
 
-    # Create heatmap
-    sns.heatmap(
-        heatmap_data.T,
-        annot=True,
-        fmt=".1%",
-        cmap="RdYlGn",
-        center=0,
-        ax=ax,
-        cbar_kws={"label": "Value"},
-    )
-
-    ax.set_title("Growth Metrics Heatmap", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Metric", fontsize=12)
-
-    return ax
-
-
-def plot_customer_acquisition_channels(
-    df: pd.DataFrame, ax: plt.Axes | None = None
-) -> plt.Axes:
-    """Plot customer acquisition channels over time.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Estimate channel contributions if not directly available
-    if "ads_clicks" in df.columns and "website_leads" in df.columns:
-        # Use available data to estimate channel contributions
-        organic_leads = df["leads_total"] - df.get("direct_leads", 0)
-        ads_leads = df["ads_clicks"] * df.get("conv_web_to_lead", 0.03)
-
-        # Create stacked area chart
-        ax.stackplot(
-            df["month"],
-            organic_leads,
-            ads_leads,
-            df.get("direct_leads", 0),
-            labels=["Organic", "Paid Ads", "Direct Outreach"],
-            alpha=0.8,
-            colors=["#2ecc71", "#3498db", "#e74c3c"],
+    fig = go.Figure(
+        go.Heatmap(
+            z=normalized.T,
+            x=df["month"],
+            y=metrics_df.columns.tolist(),
+            text=text_rows,
+            texttemplate="%{text}",
+            colorscale="RdYlGn",
+            zmid=0,
+            hovertemplate="%{y}<br>Month %{x}<br>%{text}<extra></extra>",
         )
+    )
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Growth Metrics Heatmap",
+        xaxis_title="Month",
+        yaxis_title="Metric",
+    )
+    return fig
+
+
+def plot_customer_acquisition_channels(df: pd.DataFrame) -> go.Figure:
+    """Plot customer acquisition channels over time."""
+    fig = go.Figure()
+    if "ads_clicks" in df.columns:
+        conv_web_to_lead = (
+            df["conv_web_to_lead"] if "conv_web_to_lead" in df.columns else 0.03
+        )
+        ads_leads = _series_or_zeros(df, "ads_clicks") * conv_web_to_lead
+        direct_leads = _series_or_zeros(df, "direct_leads")
+        organic_leads = (
+            _series_or_zeros(df, "leads_total") - ads_leads - direct_leads
+        ).clip(lower=0)
+        for series, label, color in zip(
+            [organic_leads, ads_leads, direct_leads],
+            ["Organic", "Paid Ads", "Direct Outreach"],
+            ["#10B981", "#2563EB", "#EF4444"],
+            strict=True,
+        ):
+            fig.add_trace(
+                go.Scatter(
+                    x=df["month"],
+                    y=series,
+                    name=label,
+                    stackgroup="channels",
+                    mode="lines",
+                    line=dict(width=0.5, color=color),
+                )
+            )
     else:
-        # Simple growth visualization
-        ax.plot(
-            df["month"],
-            df["leads_total"],
-            marker="o",
-            linewidth=2,
-            label="Total Leads",
-            color="#9b59b6",
+        fig.add_trace(
+            go.Scatter(
+                x=df["month"],
+                y=_series_or_zeros(df, "leads_total"),
+                name="Total Leads",
+                mode="lines+markers",
+                line=dict(color="#8B5CF6", width=3),
+            )
         )
 
-    ax.set_title("Customer Acquisition Channels", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Leads", fontsize=12)
-    ax.legend(loc="upper left")
-    ax.grid(True, alpha=0.3)
-
-    # Format y-axis
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(lambda x, p: f"{x / 1000:.0f}K" if x >= 1000 else f"{x:.0f}")
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Customer Acquisition Channels",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
+    fig.update_xaxes(title_text="Month")
+    _apply_count_axis(fig, title="Leads")
+    return fig
 
-    return ax
 
-
-def plot_financial_health_score(
-    df: pd.DataFrame, ax: plt.Axes | None = None
-) -> plt.Axes:
-    """Plot a comprehensive financial health score.
-
-    Args:
-        df: DataFrame with simulation results
-        ax: Matplotlib axis to plot on. If None, creates new figure.
-
-    Returns:
-        The matplotlib axis with the plot
-    """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
-
-    # Calculate financial health components (0-100 scale)
-    # Cash runway score
-    cash_months = df["cash"] / (-df["net_cashflow"].clip(upper=0).replace(0, 1))
-    cash_score = np.clip(cash_months / 24 * 100, 0, 100)  # 24 months = perfect score
-
-    # Growth score
-    revenue_growth = df["revenue_total"].pct_change().fillna(0)
+def plot_financial_health_score(df: pd.DataFrame) -> go.Figure:
+    """Plot a comprehensive financial health score."""
+    cash_months = _safe_divide(
+        _series_or_zeros(df, "cash"),
+        -_series_or_zeros(df, "net_cashflow").clip(upper=0).replace(0, 1),
+    )
+    cash_score = np.clip(cash_months / 24 * 100, 0, 100)
+    revenue_growth = _series_or_zeros(df, "revenue_total").pct_change().fillna(0)
     growth_score = np.clip(revenue_growth * 100 + 50, 0, 100)
-
-    # Profitability score
-    profit_margin = df["net_cashflow"] / df["revenue_total"].fillna(0)
+    profit_margin = _safe_divide(
+        _series_or_zeros(df, "net_cashflow"),
+        _series_or_zeros(df, "revenue_total"),
+    )
     profitability_score = np.clip(profit_margin * 100 + 50, 0, 100)
-
-    # Combined health score
     health_score = cash_score * 0.4 + growth_score * 0.3 + profitability_score * 0.3
 
-    # Plot components
-    ax.fill_between(
-        df["month"], 0, cash_score, alpha=0.3, label="Cash Runway", color="#2ecc71"
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=cash_score,
+            name="Cash Runway",
+            stackgroup="score",
+            mode="lines",
+            line=dict(width=0.5, color="#10B981"),
+        )
     )
-    ax.fill_between(
-        df["month"],
-        cash_score,
-        cash_score + growth_score,
-        alpha=0.3,
-        label="Growth",
-        color="#3498db",
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=growth_score,
+            name="Growth",
+            stackgroup="score",
+            mode="lines",
+            line=dict(width=0.5, color="#2563EB"),
+        )
     )
-    ax.fill_between(
-        df["month"],
-        cash_score + growth_score,
-        cash_score + growth_score + profitability_score,
-        alpha=0.3,
-        label="Profitability",
-        color="#e74c3c",
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=profitability_score,
+            name="Profitability",
+            stackgroup="score",
+            mode="lines",
+            line=dict(width=0.5, color="#EF4444"),
+        )
     )
-
-    # Plot overall score
-    ax.plot(
-        df["month"],
-        health_score,
-        marker="o",
-        linewidth=3,
-        label="Overall Health Score",
-        color="#9b59b6",
-    )
-
-    # Add zones
-    ax.axhspan(0, 30, alpha=0.1, color="red", label="Danger Zone")
-    ax.axhspan(30, 70, alpha=0.1, color="yellow", label="Warning Zone")
-    ax.axhspan(70, 100, alpha=0.1, color="green", label="Healthy Zone")
-
-    ax.set_title("Financial Health Score", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel("Score (0-100)", fontsize=12)
-    ax.set_ylim(0, 100)
-    ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
-    ax.grid(True, alpha=0.3)
-
-    return ax
-
-
-def plot_enhanced_dashboard(df: pd.DataFrame, save_path: str | None = None) -> None:
-    """Create an enhanced dashboard with improved visualizations.
-
-    Args:
-        df: DataFrame with simulation results
-        save_path: If provided, save the plot to this path
-    """
-    # Set style
-    plt.style.use("seaborn-v0_8-darkgrid")
-
-    # Create figure with subplots
-    fig = plt.figure(figsize=(20, 16))
-
-    # Define grid layout
-    gs = fig.add_gridspec(4, 4, hspace=0.3, wspace=0.3)
-
-    # 1. User Growth Stacked (top left, spanning 2 cols)
-    ax1 = fig.add_subplot(gs[0, :2])
-    plot_user_growth_stacked(df, ax=ax1)
-
-    # 2. Revenue Breakdown (top right, spanning 2 cols)
-    ax2 = fig.add_subplot(gs[0, 2:])
-    plot_revenue_breakdown(df, ax=ax2)
-
-    # 3. Cash Burn Rate (second row, spanning 2 cols)
-    ax3 = fig.add_subplot(gs[1, :2])
-    plot_cash_burn_rate(df, ax=ax3)
-
-    # 4. LTV vs CAC (second row, right)
-    ax4 = fig.add_subplot(gs[1, 2:])
-    plot_ltv_cac_analysis(df, ax=ax4)
-
-    # 5. Unit Economics (third row, left)
-    ax5 = fig.add_subplot(gs[2, :2])
-    plot_unit_economics(df, ax=ax5)
-
-    # 6. Conversion Funnel (third row, right)
-    ax6 = fig.add_subplot(gs[2, 2:])
-    plot_conversion_funnel(df, ax=ax6)
-
-    # 7. Customer Acquisition Channels (fourth row, left)
-    ax7 = fig.add_subplot(gs[3, :2])
-    plot_customer_acquisition_channels(df, ax=ax7)
-
-    # 8. Financial Health Score (fourth row, right)
-    ax8 = fig.add_subplot(gs[3, 2:])
-    plot_financial_health_score(df, ax=ax8)
-
-    # Add main title
-    fig.suptitle(
-        "OTAI Financial Simulation - Enhanced Dashboard",
-        fontsize=20,
-        fontweight="bold",
-        y=0.95,
-    )
-
-    # Adjust layout
-    plt.tight_layout()
-
-    if save_path:
-        fig.savefig(save_path, dpi=160, bbox_inches="tight")
-
-    return fig
-
-
-def plot_growth_insights(df: pd.DataFrame, save_path: str | None = None) -> None:
-    """Create a growth-focused insights dashboard.
-
-    Args:
-        df: DataFrame with simulation results
-        save_path: If provided, save the plot to this path
-    """
-    # Set style
-    plt.style.use("seaborn-v0_8-darkgrid")
-
-    # Create figure
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-
-    # Growth metrics heatmap
-    plot_growth_metrics_heatmap(df, ax=axes[0, 0])
-
-    # Market cap with growth phases
-    ax = axes[0, 1]
-    ax.plot(df["month"], df["market_cap"], marker="o", linewidth=2, color="black")
-    ax.fill_between(df["month"], df["market_cap"], alpha=0.3, color="gold")
-
-    # Add growth phases
-    for i in range(0, len(df), 3):
-        ax.axvspan(i, i + 3, alpha=0.1, color="green" if i % 6 == 0 else "blue")
-
-    ax.set_title("Market Cap Growth Phases", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Market Cap (€)")
-    ax.grid(True, alpha=0.3)
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"€{x / 1000000:.1f}M"))
-
-    # Revenue acceleration
-    ax = axes[1, 0]
-    revenue_growth = df["revenue_total"].pct_change().fillna(0)
-    acceleration = revenue_growth.diff().fillna(0)
-
-    ax.plot(
-        df["month"], revenue_growth, marker="o", label="Revenue Growth Rate", alpha=0.7
-    )
-    ax.plot(
-        df["month"], acceleration, marker="s", label="Growth Acceleration", alpha=0.7
-    )
-    ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5)
-    ax.set_title("Revenue Growth Dynamics", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Rate")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.1%}"))
-
-    # Product value vs user acquisition
-    ax = axes[1, 1]
-    ax2 = ax.twinx()
-
-    ax.plot(
-        df["month"], df["product_value"], marker="o", color="red", label="Product Value"
-    )
-    ax2.plot(df["month"], df["leads_total"], marker="s", color="blue", label="Leads")
-
-    ax.set_title("Product Value vs Lead Generation", fontsize=14, fontweight="bold")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Product Value", color="red")
-    ax2.set_ylabel("Leads", color="blue")
-    ax.grid(True, alpha=0.3)
-
-    # Legends
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
-
-    plt.suptitle("Growth Insights Dashboard", fontsize=18, fontweight="bold")
-    plt.tight_layout()
-
-    if save_path:
-        fig.savefig(save_path, dpi=160, bbox_inches="tight")
-
-    return fig
-
-
-def plot_enhanced_dashboard(
-    df: pd.DataFrame, save_path: str | None = None
-) -> plt.Figure:
-    """Create an enhanced dashboard with all new plotting functions.
-
-    Args:
-        df: DataFrame with simulation results
-        save_path: If provided, save the plot to this path
-
-    Returns:
-        The matplotlib figure object
-    """
-    # Create figure with subplots
-    fig = plt.figure(figsize=(20, 16))
-
-    # Create grid specification for better layout control
-    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
-
-    # 1. Cash, Debt, and Spend (top, spanning 2 columns)
-    ax1 = fig.add_subplot(gs[0, :2])
-    plot_cash_debt_spend(df, ax=ax1)
-
-    # 2. Cost Breakdown (top, right)
-    ax2 = fig.add_subplot(gs[0, 2])
-    plot_costs_breakdown(df, ax=ax2)
-
-    # 3. Revenue Split (middle, spanning all columns)
-    ax3 = fig.add_subplot(gs[1, :])
-    plot_revenue_split(df, ax=ax3, embedded=True)
-
-    # 4. User Growth (bottom left)
-    ax4 = fig.add_subplot(gs[2, 0])
-    plot_user_growth(df, ax=ax4)
-
-    # 5. Revenue and Cashflow (bottom middle)
-    ax5 = fig.add_subplot(gs[2, 1])
-    plot_revenue_cashflow(df, ax=ax5)
-
-    # 6. Cash Position (bottom right)
-    ax6 = fig.add_subplot(gs[2, 2])
-    ax6.plot(df["month"], df["cash"], marker="o", color="purple")
-    ax6.set_title("Cash Position")
-    ax6.set_xlabel("Month")
-    ax6.set_ylabel("Cash (€)")
-    ax6.grid(True, alpha=0.3)
-
-    # Format currency on cash position plot
-    ax6.yaxis.set_major_formatter(
-        FuncFormatter(
-            lambda x, p: f"€{x / 1e6:.1f}M" if x >= 1e6 else f"€{x / 1e3:.0f}K"
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=health_score,
+            name="Overall Health Score",
+            mode="lines+markers",
+            line=dict(color="#8B5CF6", width=3),
         )
     )
 
-    # Add overall title
-    fig.suptitle(
-        "OTAI Financial Simulation - Enhanced Dashboard",
-        fontsize=20,
-        fontweight="bold",
-        y=0.98,
+    fig.add_hrect(y0=0, y1=30, fillcolor="#FEE2E2", opacity=0.4, line_width=0)
+    fig.add_hrect(y0=30, y1=70, fillcolor="#FEF3C7", opacity=0.4, line_width=0)
+    fig.add_hrect(y0=70, y1=100, fillcolor="#DCFCE7", opacity=0.4, line_width=0)
+
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Financial Health Score",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month")
+    fig.update_yaxes(title_text="Score (0-100)", range=[0, 100])
+    return fig
+
+
+def plot_enhanced_dashboard(df: pd.DataFrame, save_path: str | None = None) -> go.Figure:
+    """Create an enhanced dashboard with improved visualizations."""
+    fig = make_subplots(
+        rows=4,
+        cols=2,
+        subplot_titles=(
+            "User Growth - Stacked View",
+            "Revenue Breakdown by Tier",
+            "Cash Position & Burn Rate",
+            "LTV vs CAC Analysis",
+            "Unit Economics",
+            "Conversion Funnel",
+            "Acquisition Channels",
+            "Financial Health Score",
+        ),
+        specs=[
+            [{}, {}],
+            [{"secondary_y": True}, {"secondary_y": True}],
+            [{"secondary_y": True}, {}],
+            [{}, {}],
+        ],
+        vertical_spacing=0.08,
+        horizontal_spacing=0.08,
     )
 
-    # Adjust layout
-    plt.tight_layout()
+    _add_traces_from_fig(fig, plot_user_growth_stacked(df), row=1, col=1)
+    _add_traces_from_fig(fig, plot_revenue_breakdown(df), row=1, col=2)
+    _add_traces_from_fig(fig, plot_cash_burn_rate(df), row=2, col=1)
+    _add_traces_from_fig(fig, plot_ltv_cac_analysis(df), row=2, col=2)
+    _add_traces_from_fig(fig, plot_unit_economics(df), row=3, col=1)
+    _add_traces_from_fig(fig, plot_conversion_funnel(df), row=3, col=2)
+    _add_traces_from_fig(fig, plot_customer_acquisition_channels(df), row=4, col=1)
+    _add_traces_from_fig(fig, plot_financial_health_score(df), row=4, col=2)
+
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="OTAI Financial Simulation - Enhanced Dashboard",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=1200,
+    )
+
+    for row, col in [(1, 1), (1, 2), (2, 1), (2, 2), (3, 1), (4, 1), (4, 2)]:
+        fig.update_xaxes(title_text="Month", row=row, col=col)
+    fig.update_xaxes(title_text="Count", row=3, col=2)
+    fig.update_yaxes(title_text="Stage", row=3, col=2)
+
+    _apply_count_axis(fig, title="Active Users", row=1, col=1)
+    _apply_currency_axis(fig, title="Revenue (€)", row=1, col=2)
+    _apply_currency_axis(fig, title="Cash (€)", row=2, col=1, secondary_y=False)
+    _apply_currency_axis(fig, title="Burn Rate (€ / month)", row=2, col=1, secondary_y=True)
+    _apply_currency_axis(fig, title="Value (€)", row=2, col=2, secondary_y=False)
+    fig.update_yaxes(title_text="LTV:CAC Ratio", row=2, col=2, secondary_y=True)
+    _apply_currency_axis(fig, title="Per User (€)", row=3, col=1, secondary_y=False)
+    _apply_percent_axis(fig, title="Margin %", row=3, col=1, secondary_y=True)
+    _apply_count_axis(fig, title="Leads", row=4, col=1)
+    fig.update_yaxes(title_text="Score (0-100)", row=4, col=2, range=[0, 100])
 
     if save_path:
-        fig.savefig(save_path, dpi=160, bbox_inches="tight")
+        fig.write_image(save_path, scale=2)
 
     return fig
+
+
+def plot_growth_insights(df: pd.DataFrame, save_path: str | None = None) -> go.Figure:
+    """Create a growth-focused insights dashboard."""
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        subplot_titles=(
+            "Growth Metrics Heatmap",
+            "Market Cap Growth Phases",
+            "Revenue Growth Dynamics",
+            "Product Value vs Lead Generation",
+        ),
+        specs=[[{}, {}], [{}, {"secondary_y": True}]],
+        vertical_spacing=0.12,
+    )
+
+    _add_traces_from_fig(fig, plot_growth_metrics_heatmap(df), row=1, col=1)
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "market_cap"),
+            name="Market Cap",
+            mode="lines+markers",
+            line=dict(color="#111827", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(234, 179, 8, 0.25)",
+        ),
+        row=1,
+        col=2,
+    )
+    for i in range(0, len(df), 3):
+        start = df["month"].iloc[i]
+        end = df["month"].iloc[min(i + 3, len(df) - 1)]
+        fig.add_vrect(
+            x0=start,
+            x1=end,
+            row=1,
+            col=2,
+            fillcolor="#22C55E" if i % 6 == 0 else "#3B82F6",
+            opacity=0.08,
+            line_width=0,
+        )
+
+    revenue_growth = _series_or_zeros(df, "revenue_total").pct_change().fillna(0)
+    acceleration = revenue_growth.diff().fillna(0)
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=revenue_growth,
+            name="Revenue Growth Rate",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=2),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=acceleration,
+            name="Growth Acceleration",
+            mode="lines+markers",
+            line=dict(color="#F59E0B", width=2, dash="dot"),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_hline(y=0, line_dash="dash", line_color="#94A3B8", row=2, col=1)
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "product_value"),
+            name="Product Value",
+            mode="lines+markers",
+            line=dict(color="#EF4444", width=2),
+        ),
+        row=2,
+        col=2,
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "leads_total"),
+            name="Leads",
+            mode="lines+markers",
+            line=dict(color="#2563EB", width=2),
+        ),
+        row=2,
+        col=2,
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Growth Insights Dashboard",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=850,
+    )
+    fig.update_xaxes(title_text="Month", row=1, col=1)
+    fig.update_xaxes(title_text="Month", row=1, col=2)
+    fig.update_xaxes(title_text="Month", row=2, col=1)
+    fig.update_xaxes(title_text="Month", row=2, col=2)
+    _apply_currency_axis(fig, title="Market Cap (€)", row=1, col=2)
+    _apply_percent_axis(fig, title="Rate", row=2, col=1)
+    fig.update_yaxes(title_text="Product Value", row=2, col=2, secondary_y=False)
+    _apply_count_axis(fig, title="Leads", row=2, col=2, secondary_y=True)
+
+    if save_path:
+        fig.write_image(save_path, scale=2)
+
+    return fig
+
+

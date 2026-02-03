@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import matplotlib as mpl
-
-mpl.use("Agg")  # Use non-interactive backend for testing
-
-import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
 import pytest
 
 from otai_forecast.plots import (
@@ -51,21 +47,40 @@ def sample_df():
         "leads_total": [50 * i for i in range(1, 13)],
         "net_cashflow": [5000 - i * 100 for i in range(12)],
         "market_cap": [10000 * i for i in range(1, 13)],
+        "debt": [0 for i in range(12)],
         "sales_spend": [1000 + i * 50 for i in range(12)],
         "costs_ex_tax": [800 * i for i in range(1, 13)],
+        "ads_spend": [500 + i * 25 for i in range(12)],
+        "organic_marketing_spend": [300 + i * 15 for i in range(12)],
+        "dev_spend": [5000 + i * 100 for i in range(12)],
+        "partner_spend": [0 for i in range(12)],
+        "direct_candidate_outreach_spend": [0 for i in range(12)],
         "ads_clicks": [100 * i for i in range(1, 13)],
         "website_leads": [30 * i for i in range(1, 13)],
         "direct_leads": [10 * i for i in range(1, 13)],
         "new_pro": [5 * i for i in range(1, 13)],
         "new_ent": list(range(1, 13)),
+        "cost_sales_marketing": [500 * i for i in range(1, 13)],
+        "cost_rd_expense": [3000 + i * 100 for i in range(12)],
+        "cost_ga": [1000 + i * 50 for i in range(12)],
+        "cost_customer_support": [200 * i for i in range(1, 13)],
+        "cost_it_tools": [100 * i for i in range(1, 13)],
+        "cost_payment_processing": [50 * i for i in range(1, 13)],
+        "cost_outreach_conversion": [0 for i in range(12)],
+        "cost_partner_commission": [0 for i in range(12)],
+        "revenue_pro_website": [2000 * i for i in range(1, 13)],
+        "revenue_pro_outreach": [500 * i for i in range(1, 13)],
+        "revenue_pro_partner": [0 for i in range(12)],
+        "revenue_ent_website": [5000 * i for i in range(1, 13)],
+        "revenue_ent_outreach": [1000 * i for i in range(1, 13)],
+        "revenue_ent_partner": [0 for i in range(12)],
     })
 
 
 def test_plot_results(sample_df):
     """Test the main plot_results function."""
     fig = plot_results(sample_df)
-    assert fig is not None
-    plt.close(fig)
+    assert isinstance(fig, go.Figure)
 
 
 def test_individual_plots(sample_df):
@@ -82,16 +97,8 @@ def test_individual_plots(sample_df):
     ]
 
     for plot_func in plots:
-        # Test without providing axis
-        ax = plot_func(sample_df)
-        assert ax is not None
-        plt.close(ax.figure)
-
-        # Test with provided axis
-        fig, ax = plt.subplots()
-        returned_ax = plot_func(sample_df, ax=ax)
-        assert returned_ax is ax
-        plt.close(fig)
+        fig = plot_func(sample_df)
+        assert isinstance(fig, go.Figure)
 
 
 def test_plot_results_with_save(sample_df, tmp_path):
@@ -99,7 +106,7 @@ def test_plot_results_with_save(sample_df, tmp_path):
     save_path = tmp_path / "test_plot.png"
     fig = plot_results(sample_df, save_path=str(save_path))
     assert save_path.exists()
-    plt.close(fig)
+    assert isinstance(fig, go.Figure)
 
 
 def test_enhanced_plots(sample_df):
@@ -117,16 +124,8 @@ def test_enhanced_plots(sample_df):
     ]
 
     for plot_func in enhanced_plots:
-        # Test without providing axis
-        ax = plot_func(sample_df)
-        assert ax is not None
-        plt.close(ax.figure)
-
-        # Test with provided axis
-        fig, ax = plt.subplots()
-        returned_ax = plot_func(sample_df, ax=ax)
-        assert returned_ax is ax
-        plt.close(fig)
+        fig = plot_func(sample_df)
+        assert isinstance(fig, go.Figure)
 
 
 def test_dashboard_functions(sample_df, tmp_path):
@@ -134,13 +133,11 @@ def test_dashboard_functions(sample_df, tmp_path):
     # Test enhanced dashboard
     save_path = tmp_path / "enhanced_dashboard.png"
     fig = plot_enhanced_dashboard(sample_df, save_path=str(save_path))
-    assert fig is not None
+    assert isinstance(fig, go.Figure)
     assert save_path.exists()
-    plt.close(fig)
 
     # Test growth insights
     save_path = tmp_path / "growth_insights.png"
     fig = plot_growth_insights(sample_df, save_path=str(save_path))
-    assert fig is not None
+    assert isinstance(fig, go.Figure)
     assert save_path.exists()
-    plt.close(fig)

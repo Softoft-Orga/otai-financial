@@ -1,23 +1,17 @@
 from __future__ import annotations
 
 import sys
+import tempfile
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent))
-
-import tempfile
-
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
-from otai_forecast.decision_optimizer import (
-    choose_best_decisions_by_market_cap,
-    run_simulation_df,
-)
+from otai_forecast.decision_optimizer import choose_best_decisions_by_market_cap
 from otai_forecast.export import export
-from otai_forecast.models import Assumptions, MonthlyDecision
+from otai_forecast.models import MonthlyDecision
 from otai_forecast.plots import (
     plot_cash_burn_rate,
     plot_cash_debt_spend,
@@ -37,6 +31,147 @@ from otai_forecast.plots import (
     plot_user_growth_stacked,
 )
 
+sys.path.append(str(Path(__file__).parent))
+
+MetricSpec = tuple[str, str, Callable[[float], str]]
+
+
+def _format_int(value: float) -> str:
+    return f"{int(value):,}"
+
+
+def _format_currency(value: float) -> str:
+    return f"€{int(value):,}"
+
+
+def _format_float(value: float) -> str:
+    return f"{value:.2f}"
+
+
+def _format_percent_1(value: float) -> str:
+    return f"{value:.1%}"
+
+
+def _format_percent_2(value: float) -> str:
+    return f"{value:.2%}"
+
+
+def _format_multiplier(value: float) -> str:
+    return f"{value:.1f}x"
+
+
+def _render_metrics(metrics: Iterable[MetricSpec], values: dict[str, float]) -> None:
+    for label, key, formatter in metrics:
+        st.metric(label, formatter(values[key]))
+
+
+DEFAULT_DECISION = MonthlyDecision(
+    ads_budget=10_000.0,
+    seo_budget=10_000.0,
+    dev_budget=50_000.0,
+    partner_budget=1_000.0,
+    outreach_budget=10_000.0,
+    pro_price_override=None,
+    ent_price_override=None,
+)
+
+DECISION_TOP_METRICS: list[MetricSpec] = [
+    ("Simulation Period (months)", "months", _format_int),
+    ("Starting Cash (€)", "starting_cash", _format_currency),
+]
+
+DECISION_COL_A_METRICS: list[MetricSpec] = [
+    ("Ads Budget", "ads_budget", _format_currency),
+    ("Organic Marketing (SEO) Budget", "seo_budget", _format_currency),
+    ("Direct Outreach Budget", "outreach_budget", _format_currency),
+]
+
+DECISION_COL_B_METRICS: list[MetricSpec] = [
+    ("Development Budget", "dev_budget", _format_currency),
+    ("Partner Budget", "partner_budget", _format_currency),
+]
+
+GROWTH_COL_A_METRICS: list[MetricSpec] = [
+    ("Base organic users / month", "base_organic_users_per_month", _format_int),
+    ("CPC (€)", "cpc_eur", _format_float),
+    ("CPC base (€)", "cpc_base", _format_float),
+    ("CPC growth k", "cpc_sensitivity_factor", _format_float),
+    ("CPC ref spend", "cpc_ref_spend", _format_int),
+    ("SEO effectiveness (users/€)", "seo_users_per_eur", _format_float),
+    ("SEO decay", "seo_decay", _format_float),
+    ("Domain rating init", "domain_rating_init", _format_int),
+    ("Domain rating max", "domain_rating_max", _format_int),
+]
+
+GROWTH_COL_B_METRICS: list[MetricSpec] = [
+    ("Domain rating growth k", "domain_rating_spend_sensitivity", _format_float),
+    (
+        "Domain rating ref spend",
+        "domain_rating_reference_spend_eur",
+        _format_int,
+    ),
+    ("Domain rating decay", "domain_rating_decay", _format_float),
+    ("Qualified pool", "qualified_pool_total", _format_int),
+    ("Scraping efficiency k", "scraping_efficiency_k", _format_float),
+    ("Scraping ref spend", "scraping_ref_spend", _format_int),
+]
+
+FINANCE_COL_A_METRICS: list[MetricSpec] = [
+    ("Website → Lead", "conv_web_to_lead", _format_percent_1),
+    ("Website lead → Free", "conv_website_lead_to_free", _format_percent_1),
+    ("Website lead → Pro", "conv_website_lead_to_pro", _format_percent_1),
+    ("Website lead → Ent", "conv_website_lead_to_ent", _format_percent_2),
+    ("Outreach lead → Free", "conv_outreach_lead_to_free", _format_percent_1),
+    ("Outreach lead → Pro", "conv_outreach_lead_to_pro", _format_percent_1),
+    ("Outreach lead → Ent", "conv_outreach_lead_to_ent", _format_percent_2),
+    ("Free → Pro", "conv_free_to_pro", _format_percent_1),
+    ("Pro → Ent", "conv_pro_to_ent", _format_percent_1),
+    ("Free churn", "churn_free", _format_percent_1),
+    ("Pro churn", "churn_pro", _format_percent_1),
+    ("Ent churn", "churn_ent", _format_percent_1),
+    ("Pro churn floor", "churn_pro_floor", _format_percent_1),
+]
+
+FINANCE_COL_B_METRICS: list[MetricSpec] = [
+    ("Pro base price", "pro_price_base", _format_currency),
+    ("Ent base price", "ent_price_base", _format_currency),
+    ("Pro price elasticity", "pro_price_k", _format_float),
+    ("Ent price elasticity", "ent_price_k", _format_float),
+    ("Tax rate", "tax_rate", _format_percent_1),
+    ("Market cap multiple", "market_cap_multiple", _format_multiplier),
+    ("Sales cost / new Pro", "sales_cost_per_new_pro", _format_currency),
+    ("Sales cost / new Ent", "sales_cost_per_new_ent", _format_currency),
+    ("Support cost / Pro", "support_cost_per_pro", _format_currency),
+    ("Support cost / Ent", "support_cost_per_ent", _format_currency),
+    ("Cash threshold for credit draw", "credit_cash_threshold", _format_currency),
+    ("Credit draw amount", "credit_draw_amount", _format_currency),
+    ("Base interest rate (annual)", "debt_interest_rate_base_annual", _format_percent_1),
+    ("Interest rate debt sensitivity", "debt_interest_rate_k", _format_float),
+    ("Interest rate reference debt", "debt_interest_rate_ref", _format_currency),
+]
+
+PRODUCT_COL_A_METRICS: list[MetricSpec] = [
+    ("PV init", "pv_init", _format_int),
+    ("PV min", "pv_min", _format_int),
+    ("PV ref", "pv_ref", _format_int),
+    ("PV decay shape", "product_value_decay_shape", _format_float),
+    ("PV growth scale", "dev_spend_growth_efficiency", _format_float),
+    (
+        "k PV web→lead",
+        "product_value_impact_on_web_conversions",
+        _format_float,
+    ),
+    ("k PV lead→free", "product_value_impact_on_lead_to_free", _format_float),
+]
+
+PRODUCT_COL_B_METRICS: list[MetricSpec] = [
+    ("k PV free→pro", "product_value_impact_on_free_to_pro", _format_float),
+    ("k PV pro→ent", "product_value_impact_on_pro_to_ent", _format_float),
+    ("k PV churn pro", "product_value_impact_on_pro_churn", _format_float),
+    ("k PV churn free", "product_value_impact_on_free_churn", _format_float),
+    ("k PV churn ent", "product_value_impact_on_ent_churn", _format_float),
+]
+
 
 def main():
     st.set_page_config(
@@ -51,523 +186,70 @@ def main():
     tab_inputs, tab_results = st.tabs(["Assumptions", "Results"])
 
     with tab_inputs:
-        with st.form("assumptions_form"):
-            t_decisions, t_growth, t_finance, t_product = st.tabs([
-                "Decisions",
-                "Growth",
-                "Finance",
-                "Product Value",
-            ])
+        t_decisions, t_growth, t_finance, t_product = st.tabs([
+            "Decisions",
+            "Growth",
+            "Finance",
+            "Product Value",
+        ])
 
-            with t_decisions:
-                months = st.slider(
-                    "Simulation Period (months)", 6, 60, int(DEFAULT_ASSUMPTIONS.months)
-                )
-                starting_cash = st.slider(
-                    "Starting Cash (€)",
-                    0,
-                    500000,
-                    int(DEFAULT_ASSUMPTIONS.starting_cash),
-                )
+        assumption_values = DEFAULT_ASSUMPTIONS.model_dump()
+        decision_values = DEFAULT_DECISION.model_dump()
 
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    ads_spend = st.slider("Ads", 0, 50000, 10000, 1_000)
-                    organic_marketing_spend = st.slider(
-                        "Organic Marketing", 0, 50000, 10000, 1_000
-                    )
-                    direct_candidate_outreach_spend = st.slider(
-                        "Direct candidate outreach spend", 0, 200000, 10000, 1_000
-                    )
-                with col_b:
-                    dev_spend = st.slider("Development", 0, 200000, 50000, 1_000)
-                    partner_spend = st.slider("Partner spend", 0, 200000, 1000, 1_000)
+        with t_decisions:
+            _render_metrics(DECISION_TOP_METRICS, assumption_values)
 
-                max_evals = st.number_input(
-                    "Optimization trials",
-                    min_value=1000,
-                    max_value=250000,
-                    value=25000,
-                    step=1000,
-                )
+            col_a, col_b = st.columns(2)
+            with col_a:
+                _render_metrics(DECISION_COL_A_METRICS, decision_values)
+            with col_b:
+                _render_metrics(DECISION_COL_B_METRICS, decision_values)
+
+            max_evals = st.number_input(
+                "Optimization trials",
+                min_value=100,
+                max_value=5000,
+                value=500,
+                step=100,
+                help="Number of optimization trials. With TPE sampler, 500 trials usually achieve better results than 25,000 random trials.",
+            )
 
             with t_growth:
-                base_organic_users_per_month = st.slider(
-                    "Base organic users / month",
-                    0,
-                    50000,
-                    int(DEFAULT_ASSUMPTIONS.base_organic_users_per_month),
-                )
-                cpc_eur = st.slider(
-                    "CPC (€)", 0.0, 20.0, float(DEFAULT_ASSUMPTIONS.cpc_eur), 0.1
-                )
-                cpc_base = st.slider(
-                    "CPC base (€)",
-                    0.0,
-                    20.0,
-                    float(DEFAULT_ASSUMPTIONS.cpc_base),
-                    0.1,
-                )
-                cpc_k = st.slider(
-                    "CPC growth k", 0.0, 2.0, float(DEFAULT_ASSUMPTIONS.cpc_k), 0.05
-                )
-                cpc_ref_spend = st.slider(
-                    "CPC ref spend",
-                    1.0,
-                    20000.0,
-                    float(DEFAULT_ASSUMPTIONS.cpc_ref_spend),
-                    100.0,
-                )
-                seo_eff_users_per_eur = st.slider(
-                    "SEO effectiveness (users/€)",
-                    0.0,
-                    10.0,
-                    float(DEFAULT_ASSUMPTIONS.seo_eff_users_per_eur),
-                    0.1,
-                )
-                seo_decay = st.slider(
-                    "SEO decay", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.seo_decay), 0.01
-                )
-
-                domain_rating_init = st.slider(
-                    "Domain rating init",
-                    0.0,
-                    100.0,
-                    float(DEFAULT_ASSUMPTIONS.domain_rating_init),
-                    1.0,
-                )
-                domain_rating_max = st.slider(
-                    "Domain rating max",
-                    1.0,
-                    200.0,
-                    float(DEFAULT_ASSUMPTIONS.domain_rating_max),
-                    1.0,
-                )
-                domain_rating_growth_k = st.slider(
-                    "Domain rating growth k",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.domain_rating_growth_k),
-                    0.01,
-                )
-                domain_rating_growth_ref_spend = st.slider(
-                    "Domain rating ref spend",
-                    1.0,
-                    100000.0,
-                    float(DEFAULT_ASSUMPTIONS.domain_rating_growth_ref_spend),
-                    100.0,
-                )
-                domain_rating_decay = st.slider(
-                    "Domain rating decay",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.domain_rating_decay),
-                    0.01,
-                )
-
-                qualified_pool_total = st.slider(
-                    "Qualified pool",
-                    0,
-                    500000,
-                    int(DEFAULT_ASSUMPTIONS.qualified_pool_total),
-                    1000,
-                )
-                scraping_efficiency_k = st.slider(
-                    "Scraping efficiency k",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.scraping_efficiency_k),
-                    0.05,
-                )
-                scraping_ref_spend = st.slider(
-                    "Scraping ref spend",
-                    1.0,
-                    5000.0,
-                    float(DEFAULT_ASSUMPTIONS.scraping_ref_spend),
-                    50.0,
-                )
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    _render_metrics(GROWTH_COL_A_METRICS, assumption_values)
+                with col_b:
+                    _render_metrics(GROWTH_COL_B_METRICS, assumption_values)
 
             with t_finance:
-                conv_web_to_lead = st.slider(
-                    "Website → Lead",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_web_to_lead),
-                    0.005,
-                )
-                conv_website_lead_to_free = st.slider(
-                    "Website lead → Free",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_website_lead_to_free),
-                    0.01,
-                )
-                conv_website_lead_to_pro = st.slider(
-                    "Website lead → Pro",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_website_lead_to_pro),
-                    0.01,
-                )
-                conv_website_lead_to_ent = st.slider(
-                    "Website lead → Ent",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_website_lead_to_ent),
-                    0.001,
-                )
-
-                conv_outreach_lead_to_free = st.slider(
-                    "Outreach lead → Free",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_outreach_lead_to_free),
-                    0.01,
-                )
-                conv_outreach_lead_to_pro = st.slider(
-                    "Outreach lead → Pro",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_outreach_lead_to_pro),
-                    0.01,
-                )
-                conv_outreach_lead_to_ent = st.slider(
-                    "Outreach lead → Ent",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_outreach_lead_to_ent),
-                    0.001,
-                )
-                conv_free_to_pro = st.slider(
-                    "Free → Pro",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_free_to_pro),
-                    0.01,
-                )
-                conv_pro_to_ent = st.slider(
-                    "Pro → Ent",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.conv_pro_to_ent),
-                    0.005,
-                )
-
-                churn_free = st.slider(
-                    "Free churn", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.churn_free), 0.01
-                )
-                churn_pro = st.slider(
-                    "Pro churn", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.churn_pro), 0.01
-                )
-                churn_ent = st.slider(
-                    "Ent churn", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.churn_ent), 0.01
-                )
-                churn_pro_floor = st.slider(
-                    "Pro churn floor",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.churn_pro_floor),
-                    0.01,
-                )
-
-                pro_price_base = st.slider(
-                    "Pro base price",
-                    0,
-                    20000,
-                    int(DEFAULT_ASSUMPTIONS.pro_price_base),
-                    100,
-                )
-                ent_price_base = st.slider(
-                    "Ent base price",
-                    0,
-                    100000,
-                    int(DEFAULT_ASSUMPTIONS.ent_price_base),
-                    500,
-                )
-                pro_price_k = st.slider(
-                    "Pro price elasticity",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.pro_price_k),
-                    0.01,
-                )
-                ent_price_k = st.slider(
-                    "Ent price elasticity",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.ent_price_k),
-                    0.01,
-                )
-
-                tax_rate = st.slider(
-                    "Tax rate", 0.0, 1.0, float(DEFAULT_ASSUMPTIONS.tax_rate), 0.01
-                )
-                market_cap_multiple = st.slider(
-                    "Market cap multiple (TTM revenue)",
-                    0.0,
-                    30.0,
-                    float(DEFAULT_ASSUMPTIONS.market_cap_multiple),
-                    0.5,
-                )
-
-                sales_cost_per_new_pro = st.slider(
-                    "Sales cost / new Pro",
-                    0,
-                    5000,
-                    int(DEFAULT_ASSUMPTIONS.sales_cost_per_new_pro),
-                    50,
-                )
-                sales_cost_per_new_ent = st.slider(
-                    "Sales cost / new Ent",
-                    0,
-                    20000,
-                    int(DEFAULT_ASSUMPTIONS.sales_cost_per_new_ent),
-                    100,
-                )
-                support_cost_per_pro = st.slider(
-                    "Support cost / Pro",
-                    0,
-                    1000,
-                    int(DEFAULT_ASSUMPTIONS.support_cost_per_pro),
-                    10,
-                )
-                support_cost_per_ent = st.slider(
-                    "Support cost / Ent",
-                    0,
-                    5000,
-                    int(DEFAULT_ASSUMPTIONS.support_cost_per_ent),
-                    50,
-                )
-
-                credit_cash_threshold = st.slider(
-                    "Cash threshold for credit draw",
-                    0,
-                    500000,
-                    int(DEFAULT_ASSUMPTIONS.credit_cash_threshold),
-                    1000,
-                )
-                credit_draw_amount = st.slider(
-                    "Credit draw amount",
-                    0,
-                    500000,
-                    int(DEFAULT_ASSUMPTIONS.credit_draw_amount),
-                    1000,
-                )
-                debt_interest_rate_base_annual = st.slider(
-                    "Base interest rate (annual)",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.debt_interest_rate_base_annual),
-                    0.01,
-                )
-                debt_interest_rate_k = st.slider(
-                    "Interest rate debt sensitivity",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.debt_interest_rate_k),
-                    0.01,
-                )
-                debt_interest_rate_ref = st.slider(
-                    "Interest rate reference debt",
-                    1_000,
-                    1_000_000,
-                    int(DEFAULT_ASSUMPTIONS.debt_interest_rate_ref),
-                    1000,
-                )
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    _render_metrics(FINANCE_COL_A_METRICS, assumption_values)
+                with col_b:
+                    _render_metrics(FINANCE_COL_B_METRICS, assumption_values)
 
             with t_product:
-                pv_init = st.slider(
-                    "PV init", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_init), 1.0
-                )
-                pv_min = st.slider(
-                    "PV min", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_min), 1.0
-                )
-                pv_ref = st.slider(
-                    "PV ref", 1.0, 1000.0, float(DEFAULT_ASSUMPTIONS.pv_ref), 1.0
-                )
-                pv_decay_shape = st.slider(
-                    "PV decay shape",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.pv_decay_shape),
-                    0.01,
-                )
-                pv_growth_scale = st.slider(
-                    "PV growth scale",
-                    0.0,
-                    1.0,
-                    float(DEFAULT_ASSUMPTIONS.pv_growth_scale),
-                    0.01,
-                )
-                k_pv_web_to_lead = st.slider(
-                    "k PV web→lead",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_web_to_lead),
-                    0.05,
-                )
-                k_pv_lead_to_free = st.slider(
-                    "k PV lead→free",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_lead_to_free),
-                    0.05,
-                )
-                k_pv_free_to_pro = st.slider(
-                    "k PV free→pro",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_free_to_pro),
-                    0.05,
-                )
-                k_pv_pro_to_ent = st.slider(
-                    "k PV pro→ent",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_pro_to_ent),
-                    0.05,
-                )
-                k_pv_churn_pro = st.slider(
-                    "k PV churn pro",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_churn_pro),
-                    0.05,
-                )
-                k_pv_churn_free = st.slider(
-                    "k PV churn free",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_churn_free),
-                    0.05,
-                )
-                k_pv_churn_ent = st.slider(
-                    "k PV churn ent",
-                    0.0,
-                    2.0,
-                    float(DEFAULT_ASSUMPTIONS.k_pv_churn_ent),
-                    0.05,
-                )
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    _render_metrics(PRODUCT_COL_A_METRICS, assumption_values)
+                with col_b:
+                    _render_metrics(PRODUCT_COL_B_METRICS, assumption_values)
 
-            col_run_1, col_run_2 = st.columns(2)
-            with col_run_1:
-                run_sim = st.form_submit_button("🚀 Run Simulation")
-            with col_run_2:
-                run_opt = st.form_submit_button(
-                    "🧠 Run Optimization (maximize market cap)"
-                )
+            # Optimization button (centered)
+            st.markdown("---")
+            run_opt = st.button("🧠 Run Optimization (maximize market cap)", use_container_width=True)
 
-        params = {
-            **DEFAULT_ASSUMPTIONS.__dict__,
-            "months": int(months),
-            "starting_cash": float(starting_cash),
-            "ads_spend": float(ads_spend),
-            "organic_marketing_spend": float(organic_marketing_spend),
-            "dev_spend": float(dev_spend),
-            "partner_spend": float(partner_spend),
-            "direct_candidate_outreach_spend": float(direct_candidate_outreach_spend),
-            "base_organic_users_per_month": float(base_organic_users_per_month),
-            "cpc_eur": float(cpc_eur),
-            "cpc_base": float(cpc_base),
-            "cpc_k": float(cpc_k),
-            "cpc_ref_spend": float(cpc_ref_spend),
-            "seo_eff_users_per_eur": float(seo_eff_users_per_eur),
-            "seo_decay": float(seo_decay),
-            "domain_rating_init": float(domain_rating_init),
-            "domain_rating_max": float(domain_rating_max),
-            "domain_rating_growth_k": float(domain_rating_growth_k),
-            "domain_rating_growth_ref_spend": float(domain_rating_growth_ref_spend),
-            "domain_rating_decay": float(domain_rating_decay),
-            "conv_web_to_lead": float(conv_web_to_lead),
-            "conv_website_lead_to_free": float(conv_website_lead_to_free),
-            "conv_website_lead_to_pro": float(conv_website_lead_to_pro),
-            "conv_website_lead_to_ent": float(conv_website_lead_to_ent),
-            "conv_outreach_lead_to_free": float(conv_outreach_lead_to_free),
-            "conv_outreach_lead_to_pro": float(conv_outreach_lead_to_pro),
-            "conv_outreach_lead_to_ent": float(conv_outreach_lead_to_ent),
-            "conv_free_to_pro": float(conv_free_to_pro),
-            "conv_pro_to_ent": float(conv_pro_to_ent),
-            "churn_free": float(churn_free),
-            "churn_pro": float(churn_pro),
-            "churn_ent": float(churn_ent),
-            "churn_pro_floor": float(churn_pro_floor),
-            "pro_price_base": float(pro_price_base),
-            "ent_price_base": float(ent_price_base),
-            "pro_price_k": float(pro_price_k),
-            "ent_price_k": float(ent_price_k),
-            "tax_rate": float(tax_rate),
-            "market_cap_multiple": float(market_cap_multiple),
-            "sales_cost_per_new_pro": float(sales_cost_per_new_pro),
-            "sales_cost_per_new_ent": float(sales_cost_per_new_ent),
-            "support_cost_per_pro": float(support_cost_per_pro),
-            "support_cost_per_ent": float(support_cost_per_ent),
-            "qualified_pool_total": float(qualified_pool_total),
-            "scraping_efficiency_k": float(scraping_efficiency_k),
-            "scraping_ref_spend": float(scraping_ref_spend),
-            "credit_cash_threshold": float(credit_cash_threshold),
-            "credit_draw_amount": float(credit_draw_amount),
-            "debt_interest_rate_base_annual": float(debt_interest_rate_base_annual),
-            "debt_interest_rate_k": float(debt_interest_rate_k),
-            "debt_interest_rate_ref": float(debt_interest_rate_ref),
-            "pv_init": float(pv_init),
-            "pv_min": float(pv_min),
-            "pv_ref": float(pv_ref),
-            "pv_decay_shape": float(pv_decay_shape),
-            "pv_growth_scale": float(pv_growth_scale),
-            "k_pv_web_to_lead": float(k_pv_web_to_lead),
-            "k_pv_lead_to_free": float(k_pv_lead_to_free),
-            "k_pv_free_to_pro": float(k_pv_free_to_pro),
-            "k_pv_pro_to_ent": float(k_pv_pro_to_ent),
-            "k_pv_churn_pro": float(k_pv_churn_pro),
-            "k_pv_churn_free": float(k_pv_churn_free),
-            "k_pv_churn_ent": float(k_pv_churn_ent),
-        }
-
-        assumption_keys = set(Assumptions.__dataclass_fields__.keys())
-        a_kwargs = {k: params[k] for k in assumption_keys}
-
-        if run_sim:
-            with st.spinner("Running simulation..."):
-                a = Assumptions(**a_kwargs)
-                decisions = [
-                    MonthlyDecision(
-                        ads_spend=params["ads_spend"],
-                        organic_marketing_spend=params["organic_marketing_spend"],
-                        dev_spend=params["dev_spend"],
-                        partner_spend=params["partner_spend"],
-                        direct_candidate_outreach_spend=params[
-                            "direct_candidate_outreach_spend"
-                        ],
-                        pro_price_override=params.get("pro_price_override"),
-                        ent_price_override=params.get("ent_price_override"),
-                    )
-                    for _ in range(a.months)
-                ]
-                df = run_simulation_df(a, decisions)
-                st.session_state.df = df
-                st.session_state.decisions = decisions
-                st.session_state.assumptions = a
+        # Use DEFAULT_ASSUMPTIONS directly since all inputs are now read-only
+        a = DEFAULT_ASSUMPTIONS
 
         if run_opt:
             with st.spinner("Running optimization..."):
-                a = Assumptions(**a_kwargs)
                 base_decisions = [
-                    MonthlyDecision(
-                        ads_spend=params["ads_spend"],
-                        organic_marketing_spend=params["organic_marketing_spend"],
-                        dev_spend=params["dev_spend"],
-                        partner_spend=params["partner_spend"],
-                        direct_candidate_outreach_spend=params[
-                            "direct_candidate_outreach_spend"
-                        ],
-                        pro_price_override=params.get("pro_price_override"),
-                        ent_price_override=params.get("ent_price_override"),
-                    )
+                    DEFAULT_DECISION.model_copy()
                     for _ in range(a.months)
                 ]
-                decisions, df = choose_best_decisions_by_market_cap(
-                    a, base_decisions, max_evals=int(max_evals)
-                )
+                decisions, df = choose_best_decisions_by_market_cap(a, base_decisions, num_knots=9, knot_low=0, knot_high=10,
+                                                        max_evals=int(max_evals))
                 st.session_state.df = df
                 st.session_state.decisions = decisions
                 st.session_state.assumptions = a
@@ -653,52 +335,44 @@ def main():
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_cash_burn_rate(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_cash_burn_rate(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_monthly_revenue(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_monthly_revenue(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         # User Growth and Market Cap
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_user_growth_stacked(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_user_growth_stacked(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_product_value(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_product_value(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         # Leads & Traffic
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_leads(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_leads(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_net_cashflow(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_net_cashflow(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_ttm_revenue(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_ttm_revenue(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(10, 5))
-            plot_market_cap(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_market_cap(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         # Enhanced Analytics
         st.header("🎯 Enhanced Analytics")
@@ -707,27 +381,23 @@ def main():
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            plot_ltv_cac_analysis(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_ltv_cac_analysis(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            plot_unit_economics(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_unit_economics(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         # Second row of enhanced plots
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            plot_conversion_funnel(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_conversion_funnel(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            plot_financial_health_score(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_financial_health_score(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         # New Enhanced Plots
         st.header("📊 Enhanced Financial Visualizations")
@@ -736,23 +406,21 @@ def main():
         col1, col2 = st.columns(2)
 
         with col1:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            plot_cash_debt_spend(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_cash_debt_spend(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            plot_costs_breakdown(df, ax=ax)
-            st.pyplot(fig)
+            fig = plot_costs_breakdown(df)
+            st.plotly_chart(fig, use_container_width=True)
 
         # Second row - Revenue Split (full width)
         fig = plot_revenue_split(df)
-        st.pyplot(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
         # Enhanced Dashboard (full width)
         st.subheader("Complete Enhanced Dashboard")
         fig = plot_enhanced_dashboard(df)
-        st.pyplot(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
         # Tables
         st.header("📋 Detailed Tables")

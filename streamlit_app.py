@@ -10,6 +10,7 @@ import streamlit as st
 
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
 from otai_forecast.decision_optimizer import choose_best_decisions_by_market_cap
+from otai_forecast.docs_streamlit import render_documentation
 from otai_forecast.export import export
 from otai_forecast.models import MonthlyDecision
 from otai_forecast.plots import (
@@ -60,6 +61,24 @@ def _format_multiplier(value: float) -> str:
     return f"{value:.1f}x"
 
 
+def _format_milestones(value: object) -> str:
+    if not isinstance(value, list):
+        return ""
+    parts = []
+    for idx, milestone in enumerate(value):
+        if not isinstance(milestone, dict):
+            continue
+        pro_price = milestone.get("pro_price")
+        ent_price = milestone.get("ent_price")
+        pv_min = milestone.get("product_value_min")
+        if pro_price is None or ent_price is None or pv_min is None:
+            continue
+        parts.append(
+            f"v{idx} (pv≥{int(pv_min):,}): €{int(pro_price):,}/€{int(ent_price):,}"
+        )
+    return " | ".join(parts)
+
+
 def _render_metrics(metrics: Iterable[MetricSpec], values: dict[str, float]) -> None:
     for label, key, formatter in metrics:
         st.metric(label, formatter(values[key]))
@@ -93,12 +112,10 @@ DECISION_COL_B_METRICS: list[MetricSpec] = [
 
 GROWTH_COL_A_METRICS: list[MetricSpec] = [
     ("Base organic users / month", "base_organic_users_per_month", _format_int),
-    ("CPC (€)", "cpc_eur", _format_float),
     ("CPC base (€)", "cpc_base", _format_float),
     ("CPC growth k", "cpc_sensitivity_factor", _format_float),
     ("CPC ref spend", "cpc_ref_spend", _format_int),
     ("SEO effectiveness (users/€)", "seo_users_per_eur", _format_float),
-    ("SEO decay", "seo_decay", _format_float),
     ("Domain rating init", "domain_rating_init", _format_int),
     ("Domain rating max", "domain_rating_max", _format_int),
 ]
@@ -121,55 +138,41 @@ FINANCE_COL_A_METRICS: list[MetricSpec] = [
     ("Website lead → Free", "conv_website_lead_to_free", _format_percent_1),
     ("Website lead → Pro", "conv_website_lead_to_pro", _format_percent_1),
     ("Website lead → Ent", "conv_website_lead_to_ent", _format_percent_2),
-    ("Outreach lead → Free", "conv_outreach_lead_to_free", _format_percent_1),
-    ("Outreach lead → Pro", "conv_outreach_lead_to_pro", _format_percent_1),
-    ("Outreach lead → Ent", "conv_outreach_lead_to_ent", _format_percent_2),
+    ("Direct lead → Demo", "direct_contacted_demo_conversion", _format_percent_1),
+    ("Demo → Free", "direct_demo_appointment_conversion_to_free", _format_percent_1),
+    ("Demo → Pro", "direct_demo_appointment_conversion_to_pro", _format_percent_1),
+    ("Demo → Ent", "direct_demo_appointment_conversion_to_ent", _format_percent_2),
     ("Free → Pro", "conv_free_to_pro", _format_percent_1),
     ("Pro → Ent", "conv_pro_to_ent", _format_percent_1),
     ("Free churn", "churn_free", _format_percent_1),
     ("Pro churn", "churn_pro", _format_percent_1),
     ("Ent churn", "churn_ent", _format_percent_1),
-    ("Pro churn floor", "churn_pro_floor", _format_percent_1),
 ]
 
 FINANCE_COL_B_METRICS: list[MetricSpec] = [
-    ("Pro base price", "pro_price_base", _format_currency),
-    ("Ent base price", "ent_price_base", _format_currency),
-    ("Pro price elasticity", "pro_price_k", _format_float),
-    ("Ent price elasticity", "ent_price_k", _format_float),
+    ("Renewal upgrade rate", "milestone_achieved_renewal_percentage", _format_percent_1),
+    ("Renewal discount", "product_renewal_discount_percentage", _format_percent_1),
     ("Tax rate", "tax_rate", _format_percent_1),
     ("Market cap multiple", "market_cap_multiple", _format_multiplier),
     ("Sales cost / new Pro", "sales_cost_per_new_pro", _format_currency),
     ("Sales cost / new Ent", "sales_cost_per_new_ent", _format_currency),
     ("Support cost / Pro", "support_cost_per_pro", _format_currency),
     ("Support cost / Ent", "support_cost_per_ent", _format_currency),
-    ("Cash threshold for credit draw", "credit_cash_threshold", _format_currency),
-    ("Credit draw amount", "credit_draw_amount", _format_currency),
+    ("Cost per direct lead", "cost_per_direct_lead", _format_currency),
+    ("Cost per direct demo", "cost_per_direct_demo", _format_currency),
     ("Base interest rate (annual)", "debt_interest_rate_base_annual", _format_percent_1),
-    ("Interest rate debt sensitivity", "debt_interest_rate_k", _format_float),
-    ("Interest rate reference debt", "debt_interest_rate_ref", _format_currency),
+    ("Credit draw factor", "credit_draw_factor", _format_float),
+    ("Debt repay factor", "debt_repay_factor", _format_float),
 ]
 
 PRODUCT_COL_A_METRICS: list[MetricSpec] = [
     ("PV init", "pv_init", _format_int),
     ("PV min", "pv_min", _format_int),
-    ("PV ref", "pv_ref", _format_int),
-    ("PV decay shape", "product_value_decay_shape", _format_float),
-    ("PV growth scale", "dev_spend_growth_efficiency", _format_float),
-    (
-        "k PV web→lead",
-        "product_value_impact_on_web_conversions",
-        _format_float,
-    ),
-    ("k PV lead→free", "product_value_impact_on_lead_to_free", _format_float),
+    ("PV depreciation", "product_value_depreciation_rate", _format_percent_1),
 ]
 
 PRODUCT_COL_B_METRICS: list[MetricSpec] = [
-    ("k PV free→pro", "product_value_impact_on_free_to_pro", _format_float),
-    ("k PV pro→ent", "product_value_impact_on_pro_to_ent", _format_float),
-    ("k PV churn pro", "product_value_impact_on_pro_churn", _format_float),
-    ("k PV churn free", "product_value_impact_on_free_churn", _format_float),
-    ("k PV churn ent", "product_value_impact_on_ent_churn", _format_float),
+    ("Pricing milestones", "pricing_milestones", _format_milestones),
 ]
 
 
@@ -183,7 +186,7 @@ def main():
 
     st.title("🚀 OTAI Financial Simulation Dashboard")
 
-    tab_inputs, tab_results = st.tabs(["Assumptions", "Results"])
+    tab_inputs, tab_results, tab_docs = st.tabs(["Assumptions", "Results", "Documentation"])
 
     with tab_inputs:
         t_decisions, t_growth, t_finance, t_product = st.tabs([
@@ -237,7 +240,7 @@ def main():
 
             # Optimization button (centered)
             st.markdown("---")
-            run_opt = st.button("🧠 Run Optimization (maximize market cap)", use_container_width=True)
+            run_opt = st.button("🧠 Run Optimization (maximize market cap)", type="primary")
 
         # Use DEFAULT_ASSUMPTIONS directly since all inputs are now read-only
         a = DEFAULT_ASSUMPTIONS
@@ -267,7 +270,7 @@ def main():
                 {"month": i, **d.__dict__}
                 for i, d in enumerate(st.session_state.decisions)
             ])
-            st.dataframe(decisions_df, use_container_width=True)
+            st.dataframe(decisions_df, width='stretch')
 
         if "assumptions" in st.session_state:
             st.header("Assumptions")
@@ -275,7 +278,7 @@ def main():
                 {"Parameter": k, "Value": v}
                 for k, v in st.session_state.assumptions.__dict__.items()
             ])
-            st.dataframe(a_tbl, use_container_width=True)
+            st.dataframe(a_tbl, width='stretch')
 
         # KPIs
         st.header("📊 Key Performance Indicators")
@@ -336,43 +339,43 @@ def main():
 
         with col1:
             fig = plot_cash_burn_rate(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_monthly_revenue(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # User Growth and Market Cap
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_user_growth_stacked(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_product_value(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # Leads & Traffic
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_leads(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_net_cashflow(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_ttm_revenue(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_market_cap(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # Enhanced Analytics
         st.header("🎯 Enhanced Analytics")
@@ -382,22 +385,22 @@ def main():
 
         with col1:
             fig = plot_ltv_cac_analysis(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_unit_economics(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # Second row of enhanced plots
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_conversion_funnel(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_financial_health_score(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # New Enhanced Plots
         st.header("📊 Enhanced Financial Visualizations")
@@ -407,20 +410,20 @@ def main():
 
         with col1:
             fig = plot_cash_debt_spend(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             fig = plot_costs_breakdown(df)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         # Second row - Revenue Split (full width)
         fig = plot_revenue_split(df)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         # Enhanced Dashboard (full width)
         st.subheader("Complete Enhanced Dashboard")
         fig = plot_enhanced_dashboard(df)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         # Tables
         st.header("📋 Detailed Tables")
@@ -443,11 +446,11 @@ def main():
                     "net_cashflow",
                 ]
             ].round(2),
-            use_container_width=True,
+            width='stretch',
         )
 
         st.subheader("Monthly Full (all columns)")
-        st.dataframe(df.round(2), use_container_width=True)
+        st.dataframe(df.round(2), width='stretch')
 
         # Export button
         st.header("💾 Export Results")
@@ -474,6 +477,9 @@ def main():
                 file_name="OTAI_Simulation_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
+
+    with tab_docs:
+        render_documentation(DEFAULT_ASSUMPTIONS)
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ def sample_df():
         "direct_candidate_outreach_spend": [0 for i in range(12)],
         "ads_clicks": [100 * i for i in range(1, 13)],
         "website_leads": [30 * i for i in range(1, 13)],
-        "direct_leads": [10 * i for i in range(1, 13)],
+        "new_direct_leads": [10 * i for i in range(1, 13)],
         "new_pro": [5 * i for i in range(1, 13)],
         "new_ent": list(range(1, 13)),
         "cost_sales_marketing": [500 * i for i in range(1, 13)],

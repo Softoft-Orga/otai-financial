@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 Month = int
 
 
+class PricingMilestone(BaseModel):
+    product_value_min: float = Field(ge=0, description="Minimum product value to reach this milestone.")
+    pro_price: float = Field(ge=0, description="Pro license price for this milestone.")
+    ent_price: float = Field(ge=0, description="Enterprise license price for this milestone.")
+
+    model_config = {"frozen": True}
+
+
 class Assumptions(BaseModel):
     """Core assumptions for the financial forecasting simulation.
 
@@ -24,14 +32,12 @@ class Assumptions(BaseModel):
     base_organic_users_per_month: float = Field(ge=0, description="Baseline organic users acquired per month without any SEO. Must be >= 0.")
 
     # CPC (Cost Per Click) Model - Dynamic with diminishing returns
-    cpc_eur: float = Field(ge=0, description="Fixed fallback CPC in euros. Must be >= 0.")
     cpc_base: float = Field(ge=0, description="Base CPC at zero ad spend. Must be >= 0.")
     cpc_sensitivity_factor: float = Field(ge=0, description="CPC scaling factor for ad spend. Must be >= 0.")
     cpc_ref_spend: float = Field(gt=0, description="Reference ad spend for CPC calculation. Must be > 0.")
 
-    # SEO Model - Accumulating stock with decay
+    # SEO Model - Accumulating stock
     seo_users_per_eur: float = Field(ge=0, description="SEO efficiency: users generated per euro spent. Must be >= 0.")
-    seo_decay: float = Field(ge=0, le=1, description="Monthly decay rate for SEO stock (0-1). Must be in [0, 1].")
 
     # Domain Rating - Grows with SEO spend, decays over time
     domain_rating_init: float = Field(ge=0, description="Initial domain rating at month 0. Must be >= 0.")
@@ -45,9 +51,10 @@ class Assumptions(BaseModel):
     conv_website_lead_to_free: float = Field(ge=0, le=1)
     conv_website_lead_to_pro: float = Field(ge=0, le=1)
     conv_website_lead_to_ent: float = Field(ge=0, le=1)
-    conv_outreach_lead_to_free: float = Field(ge=0, le=1)
-    conv_outreach_lead_to_pro: float = Field(ge=0, le=1)
-    conv_outreach_lead_to_ent: float = Field(ge=0, le=1)
+    direct_contacted_demo_conversion: float = Field(ge=0, le=1)
+    direct_demo_appointment_conversion_to_free: float = Field(ge=0, le=1)
+    direct_demo_appointment_conversion_to_pro: float = Field(ge=0, le=1)
+    direct_demo_appointment_conversion_to_ent: float = Field(ge=0, le=1)
     conv_free_to_pro: float = Field(ge=0, le=1, description="Base conversion rate: free to paid pro users. Must be in [0, 1].")
     conv_pro_to_ent: float = Field(ge=0, le=1, description="Base conversion rate: pro to enterprise users. Must be in [0, 1].")
 
@@ -55,13 +62,12 @@ class Assumptions(BaseModel):
     churn_free: float = Field(ge=0, le=1, description="Base monthly churn rate for free users (0-1). Must be in [0, 1].")
     churn_pro: float = Field(ge=0, le=1, description="Base monthly churn rate for pro users (0-1). Must be in [0, 1].")
     churn_ent: float = Field(ge=0, le=1, description="Base monthly churn rate for enterprise users (0-1). Must be in [0, 1].")
-    churn_pro_floor: float = Field(ge=0, le=1, description="Minimum churn rate for pro users (0-1). Must be in [0, 1].")
 
-    # Pricing Model - Base prices with scaling
-    pro_price_base: float = Field(ge=0, description="Base monthly price for pro tier at reference product value. Must be >= 0.")
-    ent_price_base: float = Field(ge=0, description="Base monthly price for enterprise tier at reference product value. Must be >= 0.")
-    pro_price_k: float = Field(ge=0, description="Pro price elasticity to product value. Must be >= 0.")
-    ent_price_k: float = Field(ge=0, description="Enterprise price elasticity to product value. Must be >= 0.")
+    # Pricing milestones (step-wise by product value)
+    pricing_milestones: tuple[PricingMilestone, ...] = Field(
+        min_length=1,
+        description="Ordered pricing milestones keyed by product value thresholds.",
+    )
 
     # Financial Parameters
     tax_rate: float = Field(ge=0, le=1, description="Corporate tax rate on profit (0-1). Must be in [0, 1].")
@@ -94,38 +100,35 @@ class Assumptions(BaseModel):
     qualified_pool_total: float = Field(ge=0, description="Total size of qualified prospects pool. Must be >= 0.")
     scraping_efficiency_k: float = Field(ge=0, description="Scraping efficiency coefficient. Must be >= 0.")
     scraping_ref_spend: float = Field(gt=0, description="Reference scraping spend for efficiency calculation. Must be > 0.")
+    cost_per_direct_lead: float = Field(ge=0, description="Cost to contact one direct lead. Must be >= 0.")
+    cost_per_direct_demo: float = Field(ge=0, description="Cost to run one direct demo appointment. Must be >= 0.")
 
     # Debt & Credit Model
-    credit_cash_threshold: float = Field(ge=0, description="Cash level that triggers automatic credit draw. Must be >= 0.")
-    credit_draw_amount: float = Field(ge=0, description="Amount of credit to draw when threshold is breached. Must be >= 0.")
-    debt_repay_cash_threshold: float = Field(ge=0, description="Cash level that triggers automatic debt repayment. Must be >= 0.")
-    debt_repay_amount: float = Field(ge=0, description="Amount of debt to repay when threshold is breached. Must be >= 0.")
-    debt_interest_rate_base_annual: float = Field(ge=0, description="Base annual interest rate at zero debt. Must be >= 0.")
-    debt_interest_rate_k: float = Field(ge=0, description="Interest rate scaling factor for debt level. Must be >= 0.")
-    debt_interest_rate_ref: float = Field(gt=0, description="Reference debt for interest rate calculation. Must be > 0.")
+    debt_interest_rate_base_annual: float = Field(ge=0, description="Base annual interest rate (used with revenue scaling). Must be >= 0.")
+    credit_draw_factor: float = Field(ge=0, description="Multiplier applied to negative cashflow for credit draw.")
+    debt_repay_factor: float = Field(ge=0, description="Multiplier applied to positive cashflow for debt repayment.")
 
     # Product Value Model - Accumulates with dev spend, decays without
-    pv_init: float = Field(gt=0, description="Initial product value at month 0. Must be > 0.")
-    pv_min: float = Field(gt=0, description="Minimum product value (decay limit). Must be > 0.")
-    pv_ref: float = Field(gt=0, description="Reference product value for scaling calculations. Must be > 0.")
-    product_value_decay_shape: float = Field(ge=0, description="Shape parameter for product value natural decay. Must be >= 0.")
-    dev_spend_growth_efficiency: float = Field(ge=0, description="Scale factor for product value growth from dev spend. Must be >= 0.")
-    monthly_renewal_fee_product_divisor: float = Field(gt=0)
-
-    # Product Value Effects - How product value influences other metrics
-    product_value_impact_on_web_conversions: float = Field(ge=0, description="Product value impact on web-to-lead conversion. Must be >= 0.")
-    product_value_impact_on_lead_to_free: float = Field(ge=0, description="Product value impact on lead-to-free conversion. Must be >= 0.")
-    product_value_impact_on_free_to_pro: float = Field(ge=0, description="Product value impact on free-to-pro conversion. Must be >= 0.")
-    product_value_impact_on_pro_to_ent: float = Field(ge=0, description="Product value impact on pro-to-enterprise conversion. Must be >= 0.")
-    product_value_impact_on_pro_churn: float = Field(ge=0, description="Product value impact on pro churn reduction. Must be >= 0.")
-    product_value_impact_on_free_churn: float = Field(ge=0, description="Product value impact on free churn reduction. Must be >= 0.")
-    product_value_impact_on_ent_churn: float = Field(ge=0, description="Product value impact on enterprise churn reduction. Must be >= 0.")
+    pv_init: float = Field(ge=0, description="Initial product value at month 0. Must be >= 0.")
+    pv_min: float = Field(ge=0, description="Minimum product value (decay limit). Must be >= 0.")
+    product_value_depreciation_rate: float = Field(
+        ge=0,
+        le=1,
+        description="Monthly depreciation rate for product value (0-1).",
+    )
+    milestone_achieved_renewal_percentage: float = Field(
+        ge=0,
+        le=1,
+        description="Share of active licenses that renew when a new milestone is achieved (0-1).",
+    )
+    product_renewal_discount_percentage: float = Field(
+        ge=0,
+        le=1,
+        description="Discount applied to milestone renewal price (0-1).",
+    )
 
     # Cost Category Assumptions
     payment_processing_rate: float = Field(ge=0, le=1, description="Payment processing fee rate as percentage of revenue (0-1).")
-    cost_per_outreach_conversion_free: float = Field(ge=0, description="Cost to convert one outreach lead to free user. Must be >= 0.")
-    cost_per_outreach_conversion_pro: float = Field(ge=0, description="Cost to convert one outreach lead to pro user. Must be >= 0.")
-    cost_per_outreach_conversion_ent: float = Field(ge=0, description="Cost to convert one outreach lead to enterprise user. Must be >= 0.")
     dev_capex_ratio: float = Field(ge=0, le=1, description="Portion of dev spend that is capitalized as CAPEX (0-1).")
 
     # Add stricter constraints with validators
@@ -136,12 +139,6 @@ class Assumptions(BaseModel):
             raise ValueError('domain_rating_init must be <= domain_rating_max')
         return v
 
-    @field_validator('churn_pro_floor')
-    @classmethod
-    def churn_pro_floor_must_be_le_churn_pro(cls, v: float, info: Any) -> float:
-        if 'churn_pro' in info.data and v > info.data['churn_pro']:
-            raise ValueError('churn_pro_floor must be <= churn_pro')
-        return v
 
     @field_validator('pv_min')
     @classmethod
@@ -150,9 +147,29 @@ class Assumptions(BaseModel):
             raise ValueError('pv_min must be <= pv_init')
         return v
 
+    @model_validator(mode="after")
+    def pricing_milestones_ordered(self) -> "Assumptions":
+        milestones = list(self.pricing_milestones)
+        if not milestones:
+            raise ValueError("pricing_milestones must have at least one entry")
+        if milestones[0].product_value_min != 0:
+            raise ValueError("pricing_milestones must start at product_value_min = 0")
+        for prev, current in zip(milestones, milestones[1:]):
+            if current.product_value_min <= prev.product_value_min:
+                raise ValueError("pricing_milestones must be strictly increasing")
+        for milestone in milestones:
+            if milestone.ent_price < milestone.pro_price:
+                raise ValueError("enterprise price must be >= pro price in pricing_milestones")
+            if milestone.pro_price > 100_000:
+                raise ValueError("pro price must be <= €100,000 for realistic business modeling")
+            if milestone.ent_price > 500_000:
+                raise ValueError("enterprise price must be <= €500,000 for realistic business modeling")
+        return self
+
     # Add reasonable upper bounds for critical business metrics
     @field_validator('conv_web_to_lead', 'conv_website_lead_to_free', 'conv_website_lead_to_pro', 'conv_website_lead_to_ent',
-                     'conv_outreach_lead_to_free', 'conv_outreach_lead_to_pro', 'conv_outreach_lead_to_ent',
+                     'direct_contacted_demo_conversion', 'direct_demo_appointment_conversion_to_free',
+                     'direct_demo_appointment_conversion_to_pro', 'direct_demo_appointment_conversion_to_ent',
                      'conv_free_to_pro', 'conv_pro_to_ent')
     @classmethod
     def conversion_rates_reasonable_upper_bound(cls, v: float) -> float:
@@ -167,18 +184,11 @@ class Assumptions(BaseModel):
             raise ValueError('Churn rates must be <= 0.3 (30%) per month for realistic business modeling')
         return v
 
-    @field_validator('cpc_eur', 'cpc_base')
+    @field_validator('cpc_base')
     @classmethod
     def cpc_reasonable_upper_bound(cls, v: float) -> float:
         if v > 100:  # CPC shouldn't exceed €100
             raise ValueError('CPC must be <= €100 for realistic business modeling')
-        return v
-
-    @field_validator('pro_price_base', 'ent_price_base')
-    @classmethod
-    def price_reasonable_upper_bound(cls, v: float) -> float:
-        if v > 100_000:  # Base prices shouldn't exceed €100,000
-            raise ValueError('Base prices must be <= €100,000 for realistic business modeling')
         return v
 
     @field_validator('months')
@@ -273,6 +283,12 @@ class State(BaseModel):
     partners_active: float = Field(ge=0)
 
     qualified_pool_remaining: float = Field(ge=0, description="Remaining prospects in the market that haven't been scraped yet. Must be >= 0.")
+    website_leads: float = Field(ge=0, description="Website leads carried into this month for conversion.")
+    direct_demo_appointments: float = Field(ge=0, description="Direct demo appointments available for conversion this month.")
+    revenue_history: tuple[float, ...] = Field(
+        default_factory=tuple,
+        description="Trailing revenue history (up to 12 months).",
+    )
 
     # Add reasonable upper bounds
     @field_validator('cash')
@@ -301,8 +317,8 @@ class State(BaseModel):
     @field_validator('product_value')
     @classmethod
     def product_value_reasonable_bound(cls, v: float) -> float:
-        if v > 1000:  # Max product value of 1000
-            raise ValueError('Product value must be <= 1000 for realistic business modeling')
+        if v > 1_000_000_000:  # Max product value of 1B
+            raise ValueError('Product value must be <= 1B for realistic business modeling')
         return v
 
     @field_validator('free_active', 'pro_active', 'ent_active')
@@ -337,11 +353,11 @@ class MonthlyCalculated(BaseModel):
     month: Month = Field(ge=0, description="Month number for these calculations (0-indexed).")
 
     # Product Value & Pricing
-    product_value_next: float = Field(gt=0, description="Product value for next month. Must be > 0.")
-    pv_norm: float = Field(ge=0, description="Normalized product value (product_value / pv_ref).")
+    product_value_next: float = Field(ge=0, description="Product value for next month. Must be >= 0.")
     pro_price: float = Field(ge=0, description="Effective pro tier price for this month.")
     ent_price: float = Field(ge=0, description="Effective enterprise tier price for this month.")
-    renewal_fee_percentage: float = Field(ge=0, le=1)
+    renewal_upgrade_rate: float = Field(ge=0, le=1)
+    renewal_discount_rate: float = Field(ge=0, le=1)
     monthly_renewal_fee: float = Field(ge=0)
 
     pro_support_subscribers: float = Field(ge=0)
@@ -361,9 +377,10 @@ class MonthlyCalculated(BaseModel):
     conv_website_lead_to_free_eff: float = Field(ge=0, le=1, description="Effective website lead-to-free conversion rate.")
     conv_website_lead_to_pro_eff: float = Field(ge=0, le=1, description="Effective website lead-to-pro conversion rate.")
     conv_website_lead_to_ent_eff: float = Field(ge=0, le=1, description="Effective website lead-to-enterprise conversion rate.")
-    conv_outreach_lead_to_free_eff: float = Field(ge=0, le=1, description="Effective outreach lead-to-free conversion rate.")
-    conv_outreach_lead_to_pro_eff: float = Field(ge=0, le=1, description="Effective outreach lead-to-pro conversion rate.")
-    conv_outreach_lead_to_ent_eff: float = Field(ge=0, le=1, description="Effective outreach lead-to-enterprise conversion rate.")
+    direct_contacted_demo_conversion_eff: float = Field(ge=0, le=1, description="Effective direct lead-to-demo conversion rate.")
+    direct_demo_appointment_conversion_to_free_eff: float = Field(ge=0, le=1, description="Effective demo-to-free conversion rate.")
+    direct_demo_appointment_conversion_to_pro_eff: float = Field(ge=0, le=1, description="Effective demo-to-pro conversion rate.")
+    direct_demo_appointment_conversion_to_ent_eff: float = Field(ge=0, le=1, description="Effective demo-to-enterprise conversion rate.")
     upgrade_free_to_pro_eff: float = Field(ge=0, le=1, description="Effective free-to-pro conversion rate.")
     upgrade_pro_to_ent_eff: float = Field(ge=0, le=1, description="Effective pro-to-enterprise conversion rate.")
 
@@ -377,12 +394,17 @@ class MonthlyCalculated(BaseModel):
     domain_rating_next: float = Field(ge=0, description="Domain rating for next month.")
     qualified_pool_remaining_next: float = Field(ge=0, description="Remaining prospects in the market for next month.")
     website_users: float = Field(ge=0, description="Total website visitors this month.")
-    website_leads: float = Field(ge=0, description="Leads generated from website traffic.")
+    website_leads: float = Field(ge=0, description="New website leads generated this month.")
+    website_leads_available: float = Field(ge=0, description="Website leads available for conversion this month.")
+    annual_revenue_ttm: float = Field(ge=0, description="Trailing 12-month revenue used for debt pricing.")
 
     # Scraping & Outreach Funnel
-    scraped_found: float = Field(ge=0, description="New prospects discovered via scraping.")
-    outreach_leads: float = Field(ge=0, description="Leads generated from outreach to scraped prospects.")
-    direct_leads: float = Field(ge=0, description="Direct outreach leads (same as outreach_leads).")
+    new_direct_leads: float = Field(ge=0, description="New direct leads discovered via scraping.")
+    direct_contacted_leads: float = Field(ge=0, description="Direct leads contacted this month.")
+    direct_contacted_cost: float = Field(ge=0, description="Cost to contact direct leads this month.")
+    new_direct_demo_appointments: float = Field(ge=0, description="New demo appointments scheduled from outreach.")
+    direct_demo_appointments_available: float = Field(ge=0, description="Demo appointments available for conversion this month.")
+    direct_demo_appointment_cost: float = Field(ge=0, description="Cost to run demo appointments this month.")
     leads_total: float = Field(ge=0, description="Total leads from all sources.")
 
     # User Acquisition & Churn
@@ -405,6 +427,8 @@ class MonthlyCalculated(BaseModel):
     # Debt & Interest
     interest_rate_annual_eff: float = Field(ge=0, description="Effective annual interest rate based on current debt.")
     interest_payment: float = Field(ge=0, description="Monthly interest payment on debt.")
+    new_credit_draw: float = Field(ge=0, description="Credit drawn this month based on cashflow.")
+    debt_repayment: float = Field(ge=0, description="Debt repayment amount applied this month.")
 
     # Financial Results
     revenue_pro: float = Field(ge=0, description="Revenue from new pro tier customers (one-time licenses).")

@@ -23,9 +23,10 @@ class TestCompute(unittest.TestCase):
             "conv_website_lead_to_free": 0.20,
             "conv_website_lead_to_pro": 0.03,
             "conv_website_lead_to_ent": 0.002,
-            "conv_outreach_lead_to_free": 0.08,
-            "conv_outreach_lead_to_pro": 0.10,
-            "conv_outreach_lead_to_ent": 0.01,
+            "direct_contacted_demo_conversion": 0.08,
+            "direct_demo_appointment_conversion_to_free": 0.20,
+            "direct_demo_appointment_conversion_to_pro": 0.10,
+            "direct_demo_appointment_conversion_to_ent": 0.01,
             "conv_free_to_pro": 0.08,
             "conv_pro_to_ent": 0.02,
             "churn_free": 0.15,
@@ -33,8 +34,8 @@ class TestCompute(unittest.TestCase):
             "churn_ent": 0.01,
             "churn_pro_floor": 0.01,
             "qualified_pool_total": 20_000.0,
-            "credit_cash_threshold": 0.0,
-            "credit_draw_amount": 0.0,
+            "credit_draw_factor": 0.0,
+            "debt_repay_factor": 0.0,
         })
 
         self.decision = MonthlyDecision(
@@ -57,6 +58,9 @@ class TestCompute(unittest.TestCase):
             ent_active=0.0,
             partners_active=0.0,
             qualified_pool_remaining=self.a.qualified_pool_total,
+            website_leads=0.0,
+            direct_demo_appointments=0.0,
+            revenue_history=(),
         )
 
     def test_clamp(self):
@@ -79,7 +83,7 @@ class TestCompute(unittest.TestCase):
         # Cash in row i is end-of-month cash after applying that month's cashflow
         cash = self.a.starting_cash
         for r in rows:
-            cash += r["net_cashflow"]
+            cash += r["net_cashflow"] + r["new_credit_draw"] - r["debt_repayment"]
             self.assertAlmostEqual(r["cash"], cash, places=6)
 
     def test_calculate_new_state_advances_month(self):

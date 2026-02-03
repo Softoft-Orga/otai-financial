@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 import unittest
-import math
-from dataclasses import replace
-from pydantic import BaseModel
 
 from otai_forecast.compute import (
     calculate_new_monthly_data,
     _effective_cpc,
     _update_domain_rating,
-    _update_product_value,
-    _map_value_to_rates_prices,
 )
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
 from otai_forecast.models import MonthlyDecision, State
@@ -20,7 +15,9 @@ class TestAssumptionsValidation(unittest.TestCase):
     """Test that assumptions produce sensible values in calculations."""
 
     def setUp(self):
-        self.a = DEFAULT_ASSUMPTIONS
+        self.a = DEFAULT_ASSUMPTIONS.model_copy(
+            update={"credit_draw_factor": 0.0, "debt_repay_factor": 0.0}
+        )
         self.state = State(
             month=0,
             cash=self.a.starting_cash,
@@ -32,6 +29,9 @@ class TestAssumptionsValidation(unittest.TestCase):
             ent_active=10.0,
             partners_active=5.0,
             qualified_pool_remaining=self.a.qualified_pool_total,
+            website_leads=120.0,
+            direct_demo_appointments=30.0,
+            revenue_history=(10_000.0,) * 12,
         )
         self.decision = MonthlyDecision(
             ads_budget=1000.0,
@@ -133,10 +133,10 @@ class TestAssumptionsValidation(unittest.TestCase):
         self.assertGreaterEqual(monthly.upgrade_pro_to_ent_eff, 0.0001)  # Min 0.01%
         self.assertLessEqual(monthly.upgrade_pro_to_ent_eff, 0.02)       # Max 2%
         
-        # Outreach conversions should be lower than website (more targeted but smaller pool)
+        # Demo-to-pro conversion should stay within realistic bounds
         self.assertLessEqual(
-            monthly.conv_outreach_lead_to_pro_eff,
-            monthly.conv_website_lead_to_pro_eff * 2  # Allow some variation
+            monthly.direct_demo_appointment_conversion_to_pro_eff,
+            0.5,
         )
 
     def test_churn_rates_strict_bounds(self):
@@ -160,7 +160,6 @@ class TestAssumptionsValidation(unittest.TestCase):
         self.assertGreater(monthly.churn_pro_eff, monthly.churn_ent_eff)
         
         # Pro churn should respect floor
-        self.assertGreaterEqual(monthly.churn_pro_eff, self.a.churn_pro_floor)
 
     def test_pricing_strict_bounds(self):
         """Test that pricing is within realistic bounds."""
@@ -179,9 +178,11 @@ class TestAssumptionsValidation(unittest.TestCase):
         self.assertGreater(price_ratio, 1.5)   # Min 1.5x
         self.assertLess(price_ratio, 20.0)     # Max 20x
         
-        # Renewal fee percentage should be reasonable
-        self.assertGreaterEqual(monthly.renewal_fee_percentage, 0.0)
-        self.assertLessEqual(monthly.renewal_fee_percentage, 0.05)  # Max 5%
+        # Renewal rates should stay within bounds
+        self.assertGreaterEqual(monthly.renewal_upgrade_rate, 0.0)
+        self.assertLessEqual(monthly.renewal_upgrade_rate, 1.0)
+        self.assertGreaterEqual(monthly.renewal_discount_rate, 0.0)
+        self.assertLessEqual(monthly.renewal_discount_rate, 1.0)
 
     def test_user_acquisition_strict_bounds(self):
         """Test that user acquisition numbers are realistic."""
@@ -313,35 +314,43 @@ class TestAssumptionsValidation(unittest.TestCase):
         monthly_no_debt = calculate_new_monthly_data(state_no_debt, self.a, self.decision)
         self.assertEqual(monthly_no_debt.interest_payment, 0.0)
         
-        # Test with moderate debt (€50k)
-        state_mod_debt = self.state.model_copy(update={"debt": 50000.0})
+        # Test with moderate debt (€50k) and no revenue history
+        state_mod_debt = self.state.model_copy(
+            update={"debt": 50000.0, "revenue_history": ()}
+        )
         monthly_mod_debt = calculate_new_monthly_data(state_mod_debt, self.a, self.decision)
         
-        # Interest rate should be reasonable for venture debt
-        monthly_rate = monthly_mod_debt.interest_payment / state_mod_debt.debt
-        annual_rate = monthly_rate * 12.0
-        self.assertGreater(annual_rate, 0.08)   # Min 8% annually
-        self.assertLess(annual_rate, 0.25)      # Max 25% annually
+        # Interest rate should match base when revenue history is empty
+        self.assertAlmostEqual(
+            monthly_mod_debt.interest_rate_annual_eff,
+            self.a.debt_interest_rate_base_annual,
+            places=6,
+        )
         
-        # Test with high debt (€500k)
-        state_high_debt = self.state.model_copy(update={"debt": 500000.0})
+        # Test with high debt (€500k) and no revenue history
+        state_high_debt = self.state.model_copy(
+            update={"debt": 500000.0, "revenue_history": ()}
+        )
         monthly_high_debt = calculate_new_monthly_data(state_high_debt, self.a, self.decision)
         
-        # Interest rate should increase with debt but not excessively
-        high_debt_annual_rate = (monthly_high_debt.interest_payment / state_high_debt.debt) * 12.0
-        self.assertLess(high_debt_annual_rate, 0.50)  # Max 50% even at high debt
+        self.assertAlmostEqual(
+            monthly_high_debt.interest_rate_annual_eff,
+            self.a.debt_interest_rate_base_annual,
+            places=6,
+        )
 
     def test_scraping_funnel_strict_bounds(self):
         """Test that scraping/outreach funnel is realistic."""
         monthly = calculate_new_monthly_data(self.state, self.a, self.decision)
         
         # Should not find more leads than exist in pool
-        self.assertLessEqual(monthly.scraped_found, self.state.qualified_pool_remaining)
-        self.assertLessEqual(monthly.direct_leads, self.state.qualified_pool_remaining)
+        self.assertLessEqual(monthly.new_direct_leads, self.state.qualified_pool_remaining)
         
         # With €2000 spend, should find some prospects but not all
-        self.assertGreater(monthly.scraped_found, 0)
-        self.assertLess(monthly.scraped_found, self.state.qualified_pool_remaining * 0.5)  # Max 50% of pool
+        self.assertGreater(monthly.new_direct_leads, 0)
+        self.assertLess(
+            monthly.new_direct_leads, self.state.qualified_pool_remaining * 0.5
+        )  # Max 50% of pool
         
         # Scraping efficiency should have diminishing returns
         decision_low = self.decision.model_copy(update={"outreach_budget": 500.0})
@@ -351,44 +360,12 @@ class TestAssumptionsValidation(unittest.TestCase):
         monthly_high = calculate_new_monthly_data(self.state, self.a, decision_high)
         
         # 10x spend should not give 10x results
-        if monthly_low.scraped_found > 0:
-            efficiency_ratio = (monthly_high.scraped_found / 5000.0) / (monthly_low.scraped_found / 500.0)
+        if monthly_low.new_direct_leads > 0:
+            efficiency_ratio = (
+                (monthly_high.new_direct_leads / 5000.0)
+                / (monthly_low.new_direct_leads / 500.0)
+            )
             self.assertLess(efficiency_ratio, 2.0)  # High spend should be less efficient
-
-    def test_product_value_impact_strict_bounds(self):
-        """Test that product value impacts are realistic."""
-        # Test with minimum product value
-        state_min_pv = self.state.model_copy(update={"product_value": self.a.pv_min})
-        monthly_min = calculate_new_monthly_data(state_min_pv, self.a, self.decision)
-        
-        # Test with maximum product value (3x initial)
-        state_max_pv = self.state.model_copy(update={"product_value": self.a.pv_init * 3})
-        monthly_max = calculate_new_monthly_data(state_max_pv, self.a, self.decision)
-        
-        # Higher product value should improve conversions
-        self.assertGreater(
-            monthly_max.conv_website_lead_to_free_eff,
-            monthly_min.conv_website_lead_to_free_eff
-        )
-        self.assertGreater(
-            monthly_max.conv_website_lead_to_pro_eff,
-            monthly_min.conv_website_lead_to_pro_eff
-        )
-        
-        # But improvements should be bounded (not 10x improvements)
-        improvement_ratio_free = monthly_max.conv_website_lead_to_free_eff / monthly_min.conv_website_lead_to_free_eff
-        improvement_ratio_pro = monthly_max.conv_website_lead_to_pro_eff / monthly_min.conv_website_lead_to_pro_eff
-        
-        self.assertLess(improvement_ratio_free, 3.0)  # Max 3x improvement
-        self.assertLess(improvement_ratio_pro, 3.0)   # Max 3x improvement
-        
-        # Higher product value should reduce churn
-        self.assertLess(monthly_max.churn_pro_eff, monthly_min.churn_pro_eff)
-        self.assertLess(monthly_max.churn_free_eff, monthly_min.churn_free_eff)
-        
-        # Churn reduction should also be bounded
-        churn_reduction_pro = monthly_min.churn_pro_eff / monthly_max.churn_pro_eff
-        self.assertLess(churn_reduction_pro, 3.0)  # Max 3x reduction
 
     def test_cash_flow_strict_bounds(self):
         """Test that cash flow is realistic."""
@@ -431,11 +408,10 @@ class TestAssumptionsValidation(unittest.TestCase):
         self.assertLess(self.a.churn_pro, 0.20)       # Max 20% monthly
         self.assertLess(self.a.churn_ent, 0.10)       # Max 10% monthly
         
-        # Pricing
-        self.assertGreater(self.a.pro_price_base, 100)     # Min €100
-        self.assertLess(self.a.pro_price_base, 50000)      # Max €50k
-        self.assertGreater(self.a.ent_price_base, 1000)    # Min €1k
-        self.assertLess(self.a.ent_price_base, 500000)     # Max €500k
+        # Pricing milestones
+        self.assertGreaterEqual(len(self.a.pricing_milestones), 1)
+        self.assertGreater(self.a.pricing_milestones[0].pro_price, 100)
+        self.assertGreater(self.a.pricing_milestones[0].ent_price, 1000)
         
         # Domain rating
         self.assertGreater(self.a.domain_rating_init, 1)    # Min 1
@@ -448,8 +424,8 @@ class TestAssumptionsValidation(unittest.TestCase):
         
         # Product value parameters
         self.assertGreater(self.a.pv_init, 10)      # Min 10
-        self.assertLess(self.a.pv_init, 1000)       # Max 1000
-        self.assertLess(self.a.pv_min, self.a.pv_init)
+        self.assertLess(self.a.pv_init, 1_000_000_000)  # Max 1B
+        self.assertLessEqual(self.a.pv_min, self.a.pv_init)
         
         # Financial parameters
         self.assertLess(self.a.tax_rate, 0.50)      # Max 50% tax

@@ -50,9 +50,10 @@ def test_map_rates_prices_preview_respects_base_values() -> None:
         pro_price_override=None,
         ent_price_override=None,
     )
-    rates = _map_rates_prices_preview(0.0, DEFAULT_ASSUMPTIONS, decision)
-    assert rates["pro_price"] == DEFAULT_ASSUMPTIONS.pro_price_base
-    assert rates["ent_price"] == DEFAULT_ASSUMPTIONS.ent_price_base
+    rates = _map_rates_prices_preview(DEFAULT_ASSUMPTIONS.pv_init, DEFAULT_ASSUMPTIONS, decision)
+    milestone = DEFAULT_ASSUMPTIONS.pricing_milestones[-1]
+    assert rates["pro_price"] == milestone.pro_price
+    assert rates["ent_price"] == milestone.ent_price
     assert rates["conv_web_to_lead_eff"] == DEFAULT_ASSUMPTIONS.conv_web_to_lead
     assert (
         rates["conv_website_lead_to_free_eff"]

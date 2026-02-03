@@ -1,16 +1,10 @@
 from __future__ import annotations
 
 import unittest
-import math
-from dataclasses import replace
-from pydantic import BaseModel
-
 from otai_forecast.compute import (
     calculate_new_monthly_data,
     _effective_cpc,
     _update_domain_rating,
-    _update_product_value,
-    _map_value_to_rates_prices,
 )
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
 from otai_forecast.models import MonthlyDecision, State
@@ -20,7 +14,9 @@ class TestAssumptionsValidation(unittest.TestCase):
     """Test that assumptions produce sensible values in calculations."""
 
     def setUp(self):
-        self.a = DEFAULT_ASSUMPTIONS
+        self.a = DEFAULT_ASSUMPTIONS.model_copy(
+            update={"credit_draw_factor": 0.0, "debt_repay_factor": 0.0}
+        )
         self.state = State(
             month=0,
             cash=self.a.starting_cash,
@@ -32,6 +28,9 @@ class TestAssumptionsValidation(unittest.TestCase):
             ent_active=10.0,
             partners_active=5.0,
             qualified_pool_remaining=self.a.qualified_pool_total,
+            website_leads=120.0,
+            direct_demo_appointments=30.0,
+            revenue_history=(10_000.0,) * 12,
         )
         self.decision = MonthlyDecision(
             ads_budget=1000.0,
@@ -117,11 +116,13 @@ class TestAssumptionsValidation(unittest.TestCase):
             web_to_lead_rate = monthly.website_leads / monthly.website_users
             self.assertLessEqual(web_to_lead_rate, 0.1)  # Should not exceed 10%
             
-        # Check funnel progression (leads -> free -> pro -> ent)
-        # Note: MonthlyCalculated only stores total new users, not source-specific breakdowns
-        self.assertLessEqual(monthly.new_free, monthly.leads_total)
-        self.assertLessEqual(monthly.new_pro, monthly.leads_total)
-        self.assertLessEqual(monthly.new_ent, monthly.leads_total)
+        # Check funnel progression (available leads -> free/pro/ent)
+        available_leads = (
+            monthly.website_leads_available + monthly.direct_demo_appointments_available
+        )
+        self.assertLessEqual(monthly.new_free, available_leads)
+        self.assertLessEqual(monthly.new_pro, available_leads)
+        self.assertLessEqual(monthly.new_ent, available_leads)
         
         # Pro conversions should be less than free conversions
         self.assertLessEqual(monthly.new_pro, monthly.new_free)
@@ -171,26 +172,16 @@ class TestAssumptionsValidation(unittest.TestCase):
             churn_pro_rate = monthly.churned_pro / self.state.pro_active
             self.assertGreater(churn_free_rate, churn_pro_rate)
 
-    def test_product_value_impact_sensible(self):
-        """Test that product value impacts conversions and pricing sensibly."""
-        # Test with low product value
+    def test_product_value_pricing_sensible(self):
+        """Test that pricing respects product value milestones."""
         state_low_pv = self.state.model_copy(update={"product_value": self.a.pv_min})
         monthly_low = calculate_new_monthly_data(state_low_pv, self.a, self.decision)
-        
-        # Test with high product value
-        state_high_pv = self.state.model_copy(update={"product_value": 200.0})
+
+        state_high_pv = self.state.model_copy(update={"product_value": self.a.pv_init})
         monthly_high = calculate_new_monthly_data(state_high_pv, self.a, self.decision)
-        
-        # Higher product value should improve conversions
-        if monthly_low.website_leads > 0 and monthly_high.website_leads > 0:
-            low_free_rate = monthly_low.new_free / monthly_low.leads_total
-            high_free_rate = monthly_high.new_free / monthly_high.leads_total
-            self.assertGreater(high_free_rate, low_free_rate)
-        
-        # Higher product value should reduce churn
-        low_pro_churn_rate = monthly_low.churned_pro / self.state.pro_active if self.state.pro_active > 0 else 0
-        high_pro_churn_rate = monthly_high.churned_pro / self.state.pro_active if self.state.pro_active > 0 else 0
-        self.assertLess(high_pro_churn_rate, low_pro_churn_rate)
+
+        self.assertGreaterEqual(monthly_high.pro_price, monthly_low.pro_price)
+        self.assertGreaterEqual(monthly_high.ent_price, monthly_low.ent_price)
 
     def test_costs_sensible(self):
         """Test that costs are sensible relative to revenue and operations."""
@@ -209,7 +200,8 @@ class TestAssumptionsValidation(unittest.TestCase):
             self.decision.seo_budget + 
             self.decision.partner_budget + 
             self.decision.outreach_budget + 
-            monthly.sales_spend
+            monthly.sales_spend +
+            monthly.cost_outreach_conversion
         )
         self.assertAlmostEqual(monthly.cost_sales_marketing, expected_sales_marketing, places=6)
         
@@ -222,7 +214,7 @@ class TestAssumptionsValidation(unittest.TestCase):
         monthly = calculate_new_monthly_data(self.state, self.a, self.decision)
         
         # Direct leads should not exceed what's possible from remaining pool
-        self.assertLessEqual(monthly.direct_leads, self.state.qualified_pool_remaining)
+        self.assertLessEqual(monthly.new_direct_leads, self.state.qualified_pool_remaining)
         
         # Higher spend should find more leads (diminishing returns)
         decision_low_spend = self.decision.model_copy(update={"outreach_budget": 500.0})
@@ -231,11 +223,15 @@ class TestAssumptionsValidation(unittest.TestCase):
         decision_high_spend = self.decision.model_copy(update={"outreach_budget": 5000.0})
         monthly_high = calculate_new_monthly_data(self.state, self.a, decision_high_spend)
         
-        self.assertGreater(monthly_high.direct_leads, monthly_low.direct_leads)
+        self.assertGreater(monthly_high.new_direct_leads, monthly_low.new_direct_leads)
         
         # But not linearly (diminishing returns)
         spend_ratio = 5000.0 / 500.0  # 10x spend
-        leads_ratio = monthly_high.direct_leads / monthly_low.direct_leads if monthly_low.direct_leads > 0 else 1
+        leads_ratio = (
+            monthly_high.new_direct_leads / monthly_low.new_direct_leads
+            if monthly_low.new_direct_leads > 0
+            else 1
+        )
         self.assertLess(leads_ratio, spend_ratio)  # Should be less than linear
 
     def test_partner_program_sensible(self):
@@ -270,17 +266,19 @@ class TestAssumptionsValidation(unittest.TestCase):
         self.assertEqual(monthly_no_debt.interest_payment, 0.0)
         
         # Test with debt
-        state_with_debt = self.state.model_copy(update={"debt": 50000.0})
+        state_with_debt = self.state.model_copy(
+            update={"debt": 50000.0, "revenue_history": ()}
+        )
         monthly_with_debt = calculate_new_monthly_data(state_with_debt, self.a, self.decision)
         
         # Interest should be positive
         self.assertGreater(monthly_with_debt.interest_payment, 0.0)
         
-        # Interest rate should be reasonable
-        monthly_rate = monthly_with_debt.interest_payment / state_with_debt.debt
-        annual_rate = monthly_rate * 12.0
-        self.assertGreater(annual_rate, self.a.debt_interest_rate_base_annual)
-        self.assertLess(annual_rate, 1.0)  # Should not exceed 100% annually
+        # Interest rate should match base when no revenue history is available
+        annual_rate = monthly_with_debt.interest_rate_annual_eff
+        self.assertAlmostEqual(
+            annual_rate, self.a.debt_interest_rate_base_annual, places=6
+        )
 
     def test_cash_flow_sensible(self):
         """Test that cash flow calculations are sensible."""

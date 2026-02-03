@@ -38,14 +38,31 @@ def _apply_currency_axis(
     col: int | None = None,
     secondary_y: bool = False,
 ) -> None:
-    fig.update_yaxes(
-        title_text=title,
-        tickprefix="€",
-        tickformat="~s",
-        row=row,
-        col=col,
-        secondary_y=secondary_y,
-    )
+    # Only use row/col if the figure has subplots
+    if row is not None or col is not None or secondary_y:
+        # Check if figure has subplot grid
+        try:
+            fig.update_yaxes(
+                title_text=title,
+                tickprefix="€",
+                tickformat="~s",
+                row=row,
+                col=col,
+                secondary_y=secondary_y,
+            )
+        except Exception:
+            # Fallback for figures without subplots
+            fig.update_yaxes(
+                title_text=title,
+                tickprefix="€",
+                tickformat="~s",
+            )
+    else:
+        fig.update_yaxes(
+            title_text=title,
+            tickprefix="€",
+            tickformat="~s",
+        )
 
 
 def _apply_count_axis(
@@ -56,13 +73,27 @@ def _apply_count_axis(
     col: int | None = None,
     secondary_y: bool = False,
 ) -> None:
-    fig.update_yaxes(
-        title_text=title,
-        tickformat="~s",
-        row=row,
-        col=col,
-        secondary_y=secondary_y,
-    )
+    # Only use row/col if the figure has subplots
+    if row is not None or col is not None or secondary_y:
+        try:
+            fig.update_yaxes(
+                title_text=title,
+                tickformat="~s",
+                row=row,
+                col=col,
+                secondary_y=secondary_y,
+            )
+        except Exception:
+            # Fallback for figures without subplots
+            fig.update_yaxes(
+                title_text=title,
+                tickformat="~s",
+            )
+    else:
+        fig.update_yaxes(
+            title_text=title,
+            tickformat="~s",
+        )
 
 
 def _apply_percent_axis(
@@ -73,13 +104,27 @@ def _apply_percent_axis(
     col: int | None = None,
     secondary_y: bool = False,
 ) -> None:
-    fig.update_yaxes(
-        title_text=title,
-        tickformat=".1%",
-        row=row,
-        col=col,
-        secondary_y=secondary_y,
-    )
+    # Only use row/col if the figure has subplots
+    if row is not None or col is not None or secondary_y:
+        try:
+            fig.update_yaxes(
+                title_text=title,
+                tickformat=".1%",
+                row=row,
+                col=col,
+                secondary_y=secondary_y,
+            )
+        except Exception:
+            # Fallback for figures without subplots
+            fig.update_yaxes(
+                title_text=title,
+                tickformat=".1%",
+            )
+    else:
+        fig.update_yaxes(
+            title_text=title,
+            tickformat=".1%",
+        )
 
 
 def _add_traces_from_fig(
@@ -1029,7 +1074,7 @@ def plot_customer_acquisition_channels(df: pd.DataFrame) -> go.Figure:
             df["conv_web_to_lead"] if "conv_web_to_lead" in df.columns else 0.03
         )
         ads_leads = _series_or_zeros(df, "ads_clicks") * conv_web_to_lead
-        direct_leads = _series_or_zeros(df, "direct_leads")
+        direct_leads = _series_or_zeros(df, "new_direct_leads")
         organic_leads = (
             _series_or_zeros(df, "leads_total") - ads_leads - direct_leads
         ).clip(lower=0)

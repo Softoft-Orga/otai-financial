@@ -448,8 +448,8 @@ class TestAssumptionsValidation(unittest.TestCase):
         )
         monthly_zero = calculate_new_monthly_data(self.state, self.a, decision_zero)
         
-        # Should still have organic users
-        self.assertGreaterEqual(monthly_zero.website_users, self.a.base_organic_users_per_month)
+        # Should have 0 users with zero budgets
+        self.assertEqual(monthly_zero.website_users, 0)
         
         # Test with maximum reasonable budgets
         decision_max = MonthlyDecision(

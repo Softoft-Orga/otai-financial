@@ -3,6 +3,13 @@ name = "otai-financials"
 version = "0.1.0"
 description = "OTAI Financial Forecasting System"
 requires-python = ">=3.13"
+
+[tool.setuptools.packages.find]
+include = ["otai_forecast*"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 dependencies = [
     "kaleido>=0.2.1",
     "openpyxl>=3.1.5",

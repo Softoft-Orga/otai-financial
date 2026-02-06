@@ -8,33 +8,109 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from otai_forecast.config import DEFAULT_ASSUMPTIONS
-from otai_forecast.decision_optimizer import choose_best_decisions_by_market_cap
-from otai_forecast.docs_streamlit import render_documentation
+from otai_forecast.config import SCENARIO_ASSUMPTIONS
+from otai_forecast.decision_optimizer import (
+    choose_best_decisions_by_market_cap,
+    run_simulation_df,
+)
 from otai_forecast.export import export
-from otai_forecast.models import MonthlyDecision
+from otai_forecast.models import Assumptions, MonthlyDecision, ScenarioAssumptions
+from otai_forecast.optimization_storage import (
+    assumptions_hash,
+    load_optimization,
+    save_optimization,
+)
 from otai_forecast.plots import (
     plot_cash_burn_rate,
     plot_cash_debt_spend,
     plot_conversion_funnel,
     plot_costs_breakdown,
+    plot_decision_attributes,
+    plot_debt_interest_cash,
     plot_enhanced_dashboard,
     plot_financial_health_score,
-    plot_leads,
     plot_ltv_cac_analysis,
     plot_market_cap,
-    plot_monthly_revenue,
     plot_net_cashflow,
     plot_product_value,
     plot_revenue_split,
-    plot_ttm_revenue,
     plot_unit_economics,
     plot_user_growth_stacked,
 )
 
 sys.path.append(str(Path(__file__).parent))
 
+# Generate documentation at startup
+from scripts.generate_assumptions_markdown import write_markdown
+
+DOC_DIR = Path(__file__).parent / "docs"
+DOC_DIR.mkdir(exist_ok=True)
+write_markdown(DOC_DIR)
+
 MetricSpec = tuple[str, str, Callable[[float], str]]
+
+OPTIMIZATION_DIR = Path(__file__).parent / "data" / "optimizations"
+OPTIMIZATION_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _scenario_map(
+        scenarios: Iterable[ScenarioAssumptions],
+) -> dict[str, ScenarioAssumptions]:
+    return {scenario.name: scenario for scenario in scenarios}
+
+
+def _load_scenario_assumptions(payload: dict | None) -> list[ScenarioAssumptions]:
+    if payload is None:
+        return list(SCENARIO_ASSUMPTIONS)
+    raw_scenarios = payload.get("assumption_scenarios")
+    if not isinstance(raw_scenarios, list) or not raw_scenarios:
+        return list(SCENARIO_ASSUMPTIONS)
+    scenarios: list[ScenarioAssumptions] = []
+    for scenario in raw_scenarios:
+        if not isinstance(scenario, dict):
+            continue
+        try:
+            scenarios.append(ScenarioAssumptions(**scenario))
+        except Exception:
+            return list(SCENARIO_ASSUMPTIONS)
+    return scenarios or list(SCENARIO_ASSUMPTIONS)
+
+
+def _apply_optimization_payload(payload: dict) -> None:
+    assumptions = Assumptions(**payload["assumptions"])
+    decisions = [
+        MonthlyDecision(**decision)
+        for decision in payload["decisions"]
+    ]
+    st.session_state.assumptions = assumptions
+    st.session_state.decisions = decisions
+    st.session_state.df = run_simulation_df(assumptions, decisions)
+    st.session_state.assumption_key = payload.get("assumption_hash") or assumptions_hash(
+        assumptions
+    )
+    st.session_state.scenario_assumptions = _load_scenario_assumptions(payload)
+    for scenario in st.session_state.scenario_assumptions:
+        if assumptions_hash(scenario.assumptions) == st.session_state.assumption_key:
+            st.session_state.selected_scenario_name = scenario.name
+            break
+
+
+def _clear_results(assumptions: Assumptions) -> None:
+    st.session_state.assumptions = assumptions
+    st.session_state.assumption_key = assumptions_hash(assumptions)
+    st.session_state.pop("df", None)
+    st.session_state.pop("decisions", None)
+
+
+def _activate_scenario(scenario: ScenarioAssumptions) -> None:
+    st.session_state.selected_scenario_name = scenario.name
+    assumption_key = assumptions_hash(scenario.assumptions)
+    st.session_state.assumption_key = assumption_key
+    payload = load_optimization(OPTIMIZATION_DIR, assumption_key)
+    if payload:
+        _apply_optimization_payload(payload)
+        return
+    _clear_results(scenario.assumptions)
 
 
 def _format_int(value: float) -> str:
@@ -79,20 +155,34 @@ def _format_milestones(value: object) -> str:
     return " | ".join(parts)
 
 
+def _format_assumption_value(key: str, value: object) -> object:
+    if key == "pricing_milestones":
+        if isinstance(value, tuple):
+            value = list(value)
+        return _format_milestones(value)
+    if isinstance(value, tuple):
+        value = list(value)
+    if isinstance(value, (list, dict)):
+        return str(value)
+    return value
+
+
 def _render_metrics(metrics: Iterable[MetricSpec], values: dict[str, float]) -> None:
     for label, key, formatter in metrics:
         st.metric(label, formatter(values[key]))
 
 
 DEFAULT_DECISION = MonthlyDecision(
-    ads_budget=10_000.0,
-    seo_budget=10_000.0,
-    dev_budget=50_000.0,
-    partner_budget=1_000.0,
-    outreach_budget=10_000.0,
-    pro_price_override=None,
-    ent_price_override=None,
+    ads_budget=1000.0,
+    seo_budget=1000.0,
+    dev_budget=1000.0,
+    partner_budget=1000.0,
+    outreach_budget=1000.0,
 )
+
+OPTIMIZER_KNOT_LOWS = [0.1 * (i + 1) for i in range(9)]
+OPTIMIZER_KNOT_HIGHS = [8 * 2 ** (i + 2) for i in range(9)]
+OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE = 10
 
 DECISION_TOP_METRICS: list[MetricSpec] = [
     ("Simulation Period (months)", "months", _format_int),
@@ -111,7 +201,6 @@ DECISION_COL_B_METRICS: list[MetricSpec] = [
 ]
 
 GROWTH_COL_A_METRICS: list[MetricSpec] = [
-    ("Base organic users / month", "base_organic_users_per_month", _format_int),
     ("CPC base (€)", "cpc_base", _format_float),
     ("CPC growth k", "cpc_sensitivity_factor", _format_float),
     ("CPC ref spend", "cpc_ref_spend", _format_int),
@@ -156,6 +245,9 @@ FINANCE_COL_B_METRICS: list[MetricSpec] = [
     ("Market cap multiple", "market_cap_multiple", _format_multiplier),
     ("Sales cost / new Pro", "sales_cost_per_new_pro", _format_currency),
     ("Sales cost / new Ent", "sales_cost_per_new_ent", _format_currency),
+    ("IT infra cost / new Free", "it_infra_cost_per_free_deal", _format_currency),
+    ("IT infra cost / new Pro", "it_infra_cost_per_pro_deal", _format_currency),
+    ("IT infra cost / new Ent", "it_infra_cost_per_ent_deal", _format_currency),
     ("Support cost / Pro", "support_cost_per_pro", _format_currency),
     ("Support cost / Ent", "support_cost_per_ent", _format_currency),
     ("Cost per direct lead", "cost_per_direct_lead", _format_currency),
@@ -186,9 +278,57 @@ def main():
 
     st.title("🚀 OTAI Financial Simulation Dashboard")
 
-    tab_inputs, tab_results, tab_docs = st.tabs(["Assumptions", "Results", "Documentation"])
+    # Handle query parameters for tab navigation
+    query_params = st.query_params
+    selected_tab = query_params.get("tab", ["documentation"])[0] if query_params.get("tab") else "documentation"
+
+    if "scenario_assumptions" not in st.session_state:
+        st.session_state.scenario_assumptions = list(SCENARIO_ASSUMPTIONS)
+
+    scenarios = st.session_state.scenario_assumptions
+    scenario_map = _scenario_map(scenarios)
+    default_scenario = next(
+        (scenario for scenario in scenarios if scenario.name.lower() == "realistic"),
+        scenarios[0],
+    )
+    if "selected_scenario_name" not in st.session_state:
+        st.session_state.selected_scenario_name = default_scenario.name
+    selected_scenario = scenario_map.get(
+        st.session_state.selected_scenario_name,
+        default_scenario,
+    )
+    if selected_scenario.name != st.session_state.selected_scenario_name:
+        st.session_state.selected_scenario_name = selected_scenario.name
+
+    if "assumption_key" not in st.session_state:
+        st.session_state.assumption_key = assumptions_hash(selected_scenario.assumptions)
+
+    if "df" not in st.session_state:
+        payload = load_optimization(OPTIMIZATION_DIR, st.session_state.assumption_key)
+        if payload:
+            _apply_optimization_payload(payload)
+        else:
+            _clear_results(selected_scenario.assumptions)
+
+    # Check if we need to initialize session state for documentation
+    if "docs_initialized" not in st.session_state:
+        st.session_state.docs_initialized = True
+        st.session_state.current_docs_tab = 0
+
+    tab_docs, tab_inputs, tab_results = st.tabs(["Documentation", "Optimization", "Results"])
 
     with tab_inputs:
+        st.header("🎛️ Optimization Parameters")
+        scenario_names = [scenario.name for scenario in scenarios]
+        selected_name = st.selectbox(
+            "Scenario assumptions",
+            scenario_names,
+            index=scenario_names.index(selected_scenario.name),
+        )
+        if selected_name != selected_scenario.name:
+            selected_scenario = scenario_map[selected_name]
+            _activate_scenario(selected_scenario)
+
         t_decisions, t_growth, t_finance, t_product = st.tabs([
             "Decisions",
             "Growth",
@@ -196,7 +336,7 @@ def main():
             "Product Value",
         ])
 
-        assumption_values = DEFAULT_ASSUMPTIONS.model_dump()
+        assumption_values = selected_scenario.assumptions.model_dump()
         decision_values = DEFAULT_DECISION.model_dump()
 
         with t_decisions:
@@ -212,7 +352,7 @@ def main():
                 "Optimization trials",
                 min_value=100,
                 max_value=5000,
-                value=500,
+                value=100,
                 step=100,
                 help="Number of optimization trials. With TPE sampler, 500 trials usually achieve better results than 25,000 random trials.",
             )
@@ -242,8 +382,7 @@ def main():
             st.markdown("---")
             run_opt = st.button("🧠 Run Optimization (maximize market cap)", type="primary")
 
-        # Use DEFAULT_ASSUMPTIONS directly since all inputs are now read-only
-        a = DEFAULT_ASSUMPTIONS
+        a = selected_scenario.assumptions
 
         if run_opt:
             with st.spinner("Running optimization..."):
@@ -251,13 +390,46 @@ def main():
                     DEFAULT_DECISION.model_copy()
                     for _ in range(a.months)
                 ]
-                decisions, df = choose_best_decisions_by_market_cap(a, base_decisions, num_knots=9, knot_low=0, knot_high=10,
-                                                        max_evals=int(max_evals))
+                decisions, df = choose_best_decisions_by_market_cap(
+                    a,
+                    base_decisions,
+                    num_knots=9,
+                    knot_lows=OPTIMIZER_KNOT_LOWS,
+                    knot_highs=OPTIMIZER_KNOT_HIGHS,
+                    max_monthly_multiplier_change=OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE,
+                    max_evals=int(max_evals),
+                )
                 st.session_state.df = df
                 st.session_state.decisions = decisions
                 st.session_state.assumptions = a
+                st.session_state.scenario_assumptions = list(SCENARIO_ASSUMPTIONS)
+                st.session_state.assumption_key = save_optimization(
+                    a,
+                    decisions,
+                    df,
+                    base_dir=OPTIMIZATION_DIR,
+                    scenario_assumptions=st.session_state.scenario_assumptions,
+                )
+                st.session_state.selected_scenario_name = selected_scenario.name
 
     with tab_results:
+        # Display currently selected scenario
+        if "selected_scenario_name" in st.session_state:
+            st.success(f"📊 Currently Selected Scenario: **{st.session_state.selected_scenario_name}**")
+            st.markdown("---")
+        
+        if "scenario_assumptions" in st.session_state:
+            st.header("Scenario Results")
+            scenario_cols = st.columns(len(st.session_state.scenario_assumptions))
+            for col, scenario in zip(scenario_cols, st.session_state.scenario_assumptions):
+                with col:
+                    if st.button(
+                            scenario.name,
+                            key=f"scenario_result_{scenario.name}",
+                            use_container_width=True,
+                    ):
+                        _activate_scenario(scenario)
+
         if "df" not in st.session_state:
             st.info("Run a simulation or optimization to see results.")
             return
@@ -266,19 +438,47 @@ def main():
 
         if "decisions" in st.session_state:
             st.header("🗓️ Monthly Decisions")
-            decisions_df = pd.DataFrame([
-                {"month": i, **d.__dict__}
-                for i, d in enumerate(st.session_state.decisions)
-            ])
+            decisions_df = pd.DataFrame(
+                [
+                    {"month": i, **d.model_dump()}
+                    for i, d in enumerate(st.session_state.decisions)
+                ]
+            )
             st.dataframe(decisions_df, width='stretch')
+
+            # Add Decision Attributes plot
+            st.subheader("📊 Decision Attributes Visualization")
+            fig = plot_decision_attributes(df)
+            st.plotly_chart(fig, width='stretch')
 
         if "assumptions" in st.session_state:
             st.header("Assumptions")
-            a_tbl = pd.DataFrame([
-                {"Parameter": k, "Value": v}
-                for k, v in st.session_state.assumptions.__dict__.items()
-            ])
+            assumptions_dict = st.session_state.assumptions.model_dump()
+            a_tbl = pd.DataFrame(
+                [
+                    {"Parameter": k, "Value": _format_assumption_value(k, v)}
+                    for k, v in assumptions_dict.items()
+                ]
+            )
+            a_tbl["Value"] = a_tbl["Value"].astype(str)
             st.dataframe(a_tbl, width='stretch')
+
+        if "scenario_assumptions" in st.session_state:
+            st.header("Scenario Assumptions")
+            for scenario in st.session_state.scenario_assumptions:
+                with st.expander(scenario.name):
+                    scenario_dict = scenario.assumptions.model_dump()
+                    scenario_tbl = pd.DataFrame(
+                        [
+                            {
+                                "Parameter": k,
+                                "Value": _format_assumption_value(k, v),
+                            }
+                            for k, v in scenario_dict.items()
+                        ]
+                    )
+                    scenario_tbl["Value"] = scenario_tbl["Value"].astype(str)
+                    st.dataframe(scenario_tbl, width='stretch')
 
         # KPIs
         st.header("📊 Key Performance Indicators")
@@ -342,10 +542,10 @@ def main():
             st.plotly_chart(fig, width='stretch')
 
         with col2:
-            fig = plot_monthly_revenue(df)
+            fig = plot_net_cashflow(df)
             st.plotly_chart(fig, width='stretch')
 
-        # User Growth and Market Cap
+        # User Growth and Product Value
         col1, col2 = st.columns(2)
 
         with col1:
@@ -356,21 +556,11 @@ def main():
             fig = plot_product_value(df)
             st.plotly_chart(fig, width='stretch')
 
-        # Leads & Traffic
+        # Market Cap and Debt
         col1, col2 = st.columns(2)
 
         with col1:
-            fig = plot_leads(df)
-            st.plotly_chart(fig, width='stretch')
-
-        with col2:
-            fig = plot_net_cashflow(df)
-            st.plotly_chart(fig, width='stretch')
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            fig = plot_ttm_revenue(df)
+            fig = plot_debt_interest_cash(df)
             st.plotly_chart(fig, width='stretch')
 
         with col2:
@@ -479,7 +669,41 @@ def main():
             )
 
     with tab_docs:
-        render_documentation(DEFAULT_ASSUMPTIONS)
+        # Read and display the documentation markdown
+        documentation_path = Path(__file__).parent / "docs" / "documentation.md"
+        if documentation_path.exists():
+            with open(documentation_path, "r", encoding="utf-8") as f:
+                doc_content = f.read()
+                st.markdown(doc_content)
+        else:
+            st.error("Documentation not found. Please ensure the documentation generation script has run.")
+
+        st.markdown("---")
+
+        # Navigation section
+        st.markdown("### 📍 Quick Navigation")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📝 Go to Optimization", use_container_width=True, key="nav_opt_docs"):
+                st.query_params.from_dict({"tab": "optimization"})
+                st.rerun()
+        with col2:
+            if st.button("📊 Go to Results", use_container_width=True, key="nav_res_docs"):
+                st.query_params.from_dict({"tab": "results"})
+                st.rerun()
+
+        st.markdown("---")
+        st.header("📋 Default Assumptions Documentation")
+
+        # Read and display the assumptions markdown file
+        assumptions_md_path = Path(__file__).parent / "docs" / "default_assumptions.md"
+        if assumptions_md_path.exists():
+            with open(assumptions_md_path, "r", encoding="utf-8") as f:
+                md_content = f.read()
+            st.markdown(md_content)
+        else:
+            st.warning("Default assumptions documentation not found. Run the markdown generation script to create it.")
+            st.code("uv run python scripts/generate_assumptions_markdown.py")
 
 
 if __name__ == "__main__":

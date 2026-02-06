@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 import unittest
 from otai_forecast.compute import (
     calculate_new_monthly_data,
     _effective_cpc,
     _update_domain_rating,
+    clamp,
 )
 from otai_forecast.config import DEFAULT_ASSUMPTIONS
 from otai_forecast.models import MonthlyDecision, State
@@ -68,19 +70,29 @@ class TestAssumptionsValidation(unittest.TestCase):
     def test_seo_lead_calculation_sensible(self):
         """Test that SEO spend produces sensible lead numbers."""
         monthly = calculate_new_monthly_data(self.state, self.a, self.decision)
-        
-        # SEO users should be proportional to spend
-        seo_users_expected = self.decision.seo_budget * self.a.seo_users_per_eur
-        seo_users_actual = monthly.website_users - (
-            self.a.base_organic_users_per_month * (1.0 + self.state.domain_rating / self.a.domain_rating_max) +
-            (self.decision.ads_budget / _effective_cpc(self.decision.ads_budget, self.a) if self.decision.ads_budget > 0 else 0.0)
+
+        domain_rating_next = _update_domain_rating(self.state, self.a, self.decision)
+        seo_authority = clamp(domain_rating_next / self.a.domain_rating_max, 0.0, 1.0)
+        ads_clicks = (
+            self.decision.ads_budget / _effective_cpc(self.decision.ads_budget, self.a)
+            if self.decision.ads_budget > 0
+            else 0.0
         )
-        
-        # Account for domain rating multiplier
-        seo_mult = 1.0 + (self.state.domain_rating / self.a.domain_rating_max)
-        
-        self.assertGreater(seo_users_actual, 0)
-        self.assertLess(abs(seo_users_actual - seo_users_expected * seo_mult) / seo_users_expected, 0.1)  # Within 10%
+        effective_seo_spend = self.a.domain_rating_reference_spend_eur * math.log1p(
+            self.decision.seo_budget / self.a.domain_rating_reference_spend_eur
+        )
+        seo_users = (
+            effective_seo_spend
+            * self.a.seo_users_per_eur
+            * (0.4 + 1.2 * (seo_authority ** 1.2))
+        )
+        website_users_expected = seo_users + ads_clicks
+
+        self.assertGreater(website_users_expected, 0)
+        self.assertLess(
+            abs(monthly.website_users - website_users_expected) / website_users_expected,
+            0.1,
+        )  # Within 10%
 
     def test_domain_rating_growth_sensible(self):
         """Test that domain rating growth follows sensible patterns."""
@@ -311,9 +323,8 @@ class TestAssumptionsValidation(unittest.TestCase):
         )
         monthly_zero = calculate_new_monthly_data(self.state, self.a, decision_zero)
         
-        # Should still have some organic users
-        self.assertGreater(monthly_zero.website_users, 0)
-        self.assertGreaterEqual(monthly_zero.website_users, self.a.base_organic_users_per_month)
+        # Should have 0 users with zero budgets
+        self.assertEqual(monthly_zero.website_users, 0)
         
         # Test with very high budgets
         decision_high = MonthlyDecision(

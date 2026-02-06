@@ -44,114 +44,97 @@ def _effective_cpc(ads_spend: float, a: Assumptions) -> float:
 
 
 def _effective_interest_rate_annual(
-    debt: float, annual_revenue_ttm: float, new_credit_draw: float, a: Assumptions
+        debt: float, annual_revenue_ttm: float, new_credit_draw: float, a: Assumptions
 ) -> float:
     if debt <= 0 and new_credit_draw <= 0:
         return 0.0
     if annual_revenue_ttm <= 0:
         return a.debt_interest_rate_base_annual
+
     debt_base = debt + new_credit_draw
-    return a.debt_interest_rate_base_annual * (debt_base / annual_revenue_ttm)
+
+    # Use logarithmic scaling to prevent interest rate from going extremely low
+    # The debt_to_revenue_ratio is the primary driver, but we use log1p to create diminishing returns
+    debt_to_revenue_ratio = debt_base / annual_revenue_ttm
+
+    # Apply logarithmic scaling with sensitivity factor
+    # Higher sensitivity_factor makes the rate decrease slower with revenue
+    log_factor = math.log1p(debt_to_revenue_ratio) / math.log1p(1.0)
+
+    # Calculate effective rate with minimum floor to prevent extremely low rates
+    effective_rate = a.debt_interest_rate_base_annual * (1.0 + a.debt_interest_rate_sensitivity_factor * log_factor)
+
+    # Ensure minimum rate of 1% (0.01) to prevent unrealistically low interest rates
+    return max(effective_rate, 0.01)
 
 
 def _update_domain_rating(state: State, a: Assumptions, d: MonthlyDecision) -> float:
     spend_factor = math.log1p(d.seo_budget / a.domain_rating_reference_spend_eur)
-    growth = (
-        (a.domain_rating_max - state.domain_rating)
-        * a.domain_rating_spend_sensitivity
-        * spend_factor
-    )
-    domain_rating_next = state.domain_rating * (1.0 - a.domain_rating_decay) + growth
+    growth_potential = a.domain_rating_max - state.domain_rating
+    growth_rate = 1.0 - math.exp(-a.domain_rating_spend_sensitivity * spend_factor)
+    decay_amount = state.domain_rating * a.domain_rating_decay
+    growth = growth_potential * growth_rate
+    domain_rating_next = state.domain_rating - decay_amount + growth
     return clamp(domain_rating_next, 0.0, a.domain_rating_max)
 
 
 def calculate_new_monthly_data(
-    state: State, a: Assumptions, d: MonthlyDecision, spend_last_month: float = 0.0
+        state: State, a: Assumptions, d: MonthlyDecision, spend_last_month: float = 0.0
 ) -> MonthlyCalculated:
     pv_next = _update_product_value(state, a, d)
     pro_price, ent_price = _prices_for_value(pv_next, a)
-    if d.pro_price_override is not None:
-        pro_price = d.pro_price_override
-    if d.ent_price_override is not None:
-        ent_price = d.ent_price_override
 
-    conv_web_to_lead_eff = clamp(a.conv_web_to_lead, 0.0, 1.0)
-    conv_website_lead_to_free_eff = clamp(a.conv_website_lead_to_free, 0.0, 1.0)
-    conv_website_lead_to_pro_eff = clamp(a.conv_website_lead_to_pro, 0.0, 1.0)
-    conv_website_lead_to_ent_eff = clamp(a.conv_website_lead_to_ent, 0.0, 1.0)
-    direct_contacted_demo_conversion_eff = clamp(a.direct_contacted_demo_conversion, 0.0, 1.0)
-    direct_demo_appointment_conversion_to_free_eff = clamp(
-        a.direct_demo_appointment_conversion_to_free,
-        0.0,
-        1.0,
-    )
-    direct_demo_appointment_conversion_to_pro_eff = clamp(
-        a.direct_demo_appointment_conversion_to_pro,
-        0.0,
-        1.0,
-    )
-    direct_demo_appointment_conversion_to_ent_eff = clamp(
-        a.direct_demo_appointment_conversion_to_ent,
-        0.0,
-        1.0,
-    )
-    upgrade_free_to_pro_eff = clamp(a.conv_free_to_pro, 0.0, 1.0)
-    upgrade_pro_to_ent_eff = clamp(a.conv_pro_to_ent, 0.0, 1.0)
-    churn_free_eff = clamp(a.churn_free, 0.0, 1.0)
-    churn_pro_eff = clamp(a.churn_pro, 0.0, 1.0)
-    churn_ent_eff = clamp(a.churn_ent, 0.0, 1.0)
 
     domain_rating_next = _update_domain_rating(state, a, d)
 
-    seo_mult = 1.0 + (domain_rating_next / a.domain_rating_max)
+    seo_authority = clamp(domain_rating_next / a.domain_rating_max, 0.0, 1.0)
     ads_clicks = (
         d.ads_budget / _effective_cpc(d.ads_budget, a) if d.ads_budget > 0 else 0.0
     )
-    website_users = (
-        a.base_organic_users_per_month * seo_mult
-        + d.seo_budget * a.seo_users_per_eur * seo_mult
-        + ads_clicks
+    seo_users = (
+        a.domain_rating_reference_spend_eur * math.log1p(
+            d.seo_budget / a.domain_rating_reference_spend_eur
+        )
+        * a.seo_users_per_eur
+        * (0.4 + 1.2 * (seo_authority ** 1.2))
     )
-    website_leads = website_users * conv_web_to_lead_eff
+    website_users = seo_users + ads_clicks
+    website_leads = website_users * a.conv_web_to_lead
     website_leads_available = state.website_leads
 
     # Direct candidate outreach: find candidates from qualified pool with diminishing returns.
     # In this simplified model we contact all scraped candidates.
-    spend_factor = math.log1p(d.outreach_budget / a.scraping_ref_spend)
-    # Calculate how many we can find from the remaining pool
-    scraped_found = state.qualified_pool_remaining * (
-        1.0 - math.exp(-a.scraping_efficiency_k * spend_factor)
+    direct_contacted_leads = state.qualified_pool_remaining * (
+            1.0 - math.exp(-a.scraping_efficiency_k * math.log1p(d.outreach_budget / a.scraping_ref_spend))
     )
-    new_direct_leads = scraped_found
-    direct_contacted_leads = new_direct_leads
     direct_contacted_cost = direct_contacted_leads * a.cost_per_direct_lead
     new_direct_demo_appointments = (
-        direct_contacted_leads * direct_contacted_demo_conversion_eff
+            direct_contacted_leads * a.direct_contacted_demo_conversion
     )
     direct_demo_appointments_available = state.direct_demo_appointments
     direct_demo_appointment_cost = (
-        direct_demo_appointments_available * a.cost_per_direct_demo
+            direct_demo_appointments_available * a.cost_per_direct_demo
     )
 
-    leads_total = website_leads + new_direct_leads
+    leads_total = website_leads + direct_contacted_leads
 
     # Conversions from website leads
-    new_free_from_website = website_leads_available * conv_website_lead_to_free_eff
-    new_pro_from_website = website_leads_available * conv_website_lead_to_pro_eff
-    new_ent_from_website = website_leads_available * conv_website_lead_to_ent_eff
+    new_free_from_website = website_leads_available * a.conv_website_lead_to_free
+    new_pro_from_website = website_leads_available * a.conv_website_lead_to_pro
+    new_ent_from_website = website_leads_available * a.conv_website_lead_to_ent
 
     # Conversions from direct demo appointments (delayed from prior month)
     new_free_from_outreach = (
-        direct_demo_appointments_available
-        * direct_demo_appointment_conversion_to_free_eff
+            direct_demo_appointments_available
+            * a.direct_demo_appointment_conversion_to_free
     )
     new_pro_from_outreach = (
-        direct_demo_appointments_available
-        * direct_demo_appointment_conversion_to_pro_eff
+            direct_demo_appointments_available
+            * a.direct_demo_appointment_conversion_to_pro
     )
     new_ent_from_outreach = (
-        direct_demo_appointments_available
-        * direct_demo_appointment_conversion_to_ent_eff
+            direct_demo_appointments_available
+            * a.direct_demo_appointment_conversion_to_ent
     )
 
     # Total new customers from all sources (direct conversions, not upgrades)
@@ -159,9 +142,9 @@ def calculate_new_monthly_data(
     new_pro_from_all_sources = new_pro_from_website + new_pro_from_outreach
     new_ent_from_all_sources = new_ent_from_website + new_ent_from_outreach
 
-    churned_free = state.free_active * clamp(churn_free_eff, 0.0, 1.0)
-    churned_pro = state.pro_active * clamp(churn_pro_eff, 0.0, 1.0)
-    churned_ent = state.ent_active * clamp(churn_ent_eff, 0.0, 1.0)
+    churned_free = state.free_active * clamp(a.churn_free, 0.0, 1.0)
+    churned_pro = state.pro_active * clamp(a.churn_pro, 0.0, 1.0)
+    churned_ent = state.ent_active * clamp(a.churn_ent, 0.0, 1.0)
 
     new_partners = math.log1p(
         math.log1p(d.partner_budget / a.partner_spend_ref)
@@ -177,8 +160,8 @@ def calculate_new_monthly_data(
     pro_after_churn = max(0.0, state.pro_active - churned_pro)
     ent_after_churn = max(0.0, state.ent_active - churned_ent)
 
-    upgraded_to_pro = free_after_churn * upgrade_free_to_pro_eff
-    upgraded_to_ent = pro_after_churn * upgrade_pro_to_ent_eff
+    upgraded_to_pro = free_after_churn * a.conv_free_to_pro
+    upgraded_to_ent = pro_after_churn * a.conv_pro_to_ent
 
     # Calculate next period users before accounting for upgrades
     free_next_pre_pro = max(0.0, free_after_churn + new_free_from_all_sources)
@@ -204,8 +187,10 @@ def calculate_new_monthly_data(
     milestone_current = _milestone_for_value(state.product_value, a)
     milestone_next = _milestone_for_value(pv_next, a)
     milestone_advanced = milestone_next > milestone_current
-    renewal_upgrade_rate = a.milestone_achieved_renewal_percentage if milestone_advanced else 0.0
-    renewal_discount_rate = a.product_renewal_discount_percentage if milestone_advanced else 0.0
+    # Only calculate renewal fees if milestone advanced and hasn't been renewed before
+    milestone_already_renewed = milestone_next in state.renewed_milestones
+    renewal_upgrade_rate = a.milestone_achieved_renewal_percentage if milestone_advanced and not milestone_already_renewed else 0.0
+    renewal_discount_rate = a.product_renewal_discount_percentage if milestone_advanced and not milestone_already_renewed else 0.0
     renewal_multiplier = renewal_upgrade_rate * (1.0 - renewal_discount_rate)
     renewal_fee_pro = pro_next * pro_price * renewal_multiplier
     renewal_fee_ent = ent_next * ent_price * renewal_multiplier
@@ -215,27 +200,27 @@ def calculate_new_monthly_data(
     ent_support_subscribers = ent_next * a.support_subscription_take_rate_ent
 
     support_subscription_revenue_pro = (
-        pro_support_subscribers * pro_price * a.support_subscription_fee_pct_pro
+            pro_support_subscribers * pro_price * a.support_subscription_fee_pct_pro
     )
     support_subscription_revenue_ent = (
-        ent_support_subscribers * ent_price * a.support_subscription_fee_pct_ent
+            ent_support_subscribers * ent_price * a.support_subscription_fee_pct_ent
     )
     support_subscription_revenue_total = (
-        support_subscription_revenue_pro + support_subscription_revenue_ent
+            support_subscription_revenue_pro + support_subscription_revenue_ent
     )
 
     partner_commission_cost = a.partner_commission_rate * (
-        partner_pro_deals * pro_price + partner_ent_deals * ent_price
+            partner_pro_deals * pro_price + partner_ent_deals * ent_price
     )
 
     new_pro = new_pro_from_all_sources + upgraded_to_pro
     new_ent = new_ent_from_all_sources + upgraded_to_ent
     sales_spend = (
-        new_pro * a.sales_cost_per_new_pro + new_ent * a.sales_cost_per_new_ent
+            new_pro * a.sales_cost_per_new_pro + new_ent * a.sales_cost_per_new_ent
     )
     support_spend = (
-        pro_support_subscribers * a.support_cost_per_pro
-        + ent_support_subscribers * a.support_cost_per_ent
+            pro_support_subscribers * a.support_cost_per_pro
+            + ent_support_subscribers * a.support_cost_per_ent
     )
 
     annual_revenue_ttm = sum(state.revenue_history)
@@ -259,10 +244,10 @@ def calculate_new_monthly_data(
     revenue_support_ent = support_subscription_revenue_ent
 
     revenue_total = (
-        revenue_pro
-        + revenue_ent
-        + monthly_renewal_fee
-        + support_subscription_revenue_total
+            revenue_pro
+            + revenue_ent
+            + monthly_renewal_fee
+            + support_subscription_revenue_total
     )
 
     # Calculate costs by financial category
@@ -270,7 +255,7 @@ def calculate_new_monthly_data(
     # 1. COGS (Cost of Goods Sold)
     # Direct costs to deliver the product/service
     cost_payment_processing = (
-        revenue_total * a.payment_processing_rate
+            revenue_total * a.payment_processing_rate
     )  # Payment processing fees
     cost_outreach_conversion = direct_contacted_cost + direct_demo_appointment_cost
     cogs = cost_payment_processing
@@ -278,12 +263,12 @@ def calculate_new_monthly_data(
     # 2. Operating Expenses (OPEX)
     # Sales & Marketing (acquisition costs, not direct conversion costs)
     cost_sales_marketing = (
-        d.ads_budget
-        + d.seo_budget
-        + d.partner_budget
-        + d.outreach_budget
-        + sales_spend
-        + cost_outreach_conversion
+            d.ads_budget
+            + d.seo_budget
+            + d.partner_budget
+            + d.outreach_budget
+            + sales_spend
+            + cost_outreach_conversion
     )
 
     # R&D (Research & Development)
@@ -292,7 +277,7 @@ def calculate_new_monthly_data(
 
     # General & Administrative
     cost_ga = a.operating_baseline + a.operating_per_user * (
-        state.free_active + state.pro_active + state.ent_active
+            state.free_active + state.pro_active + state.ent_active
     )
 
     # Customer Support
@@ -300,40 +285,38 @@ def calculate_new_monthly_data(
 
     # IT / Internal Tools
     cost_it_tools = (
-        a.operating_per_dev * d.dev_budget
+            a.operating_per_dev * d.dev_budget
     )  # Overhead and tools per dev spend
 
     operating_expenses = (
-        cost_sales_marketing
-        + cost_rd_expense
-        + cost_ga
-        + cost_customer_support
-        + cost_it_tools
+            cost_sales_marketing
+            + cost_rd_expense
+            + cost_ga
+            + cost_customer_support
+            + cost_it_tools
     )
 
     # 3. CAPEX (Capital Expenditures)
     # Long-term investments
     capital_expenditure = (
-        d.dev_budget * a.dev_capex_ratio
+            d.dev_budget * a.dev_capex_ratio
     )  # Portion of dev spend that's capitalized
 
     cost_partner_commission = partner_commission_cost
     costs_ex_tax_pre_interest = (
-        cogs + operating_expenses + capital_expenditure + cost_partner_commission
+            cogs + operating_expenses + capital_expenditure + cost_partner_commission
     )
     profit_bt_pre_interest = revenue_total - costs_ex_tax_pre_interest
     tax_pre_interest = max(0.0, profit_bt_pre_interest) * a.tax_rate
     net_cashflow_pre_financing = profit_bt_pre_interest - tax_pre_interest
 
     new_credit_draw = max(0.0, -net_cashflow_pre_financing * a.credit_draw_factor)
-    debt_repayment = max(0.0, net_cashflow_pre_financing * a.debt_repay_factor)
-    debt_repayment = min(debt_repayment, state.debt)
 
     interest_rate_annual_eff = _effective_interest_rate_annual(
         state.debt, annual_revenue_ttm, new_credit_draw, a
     )
     interest_payment = (state.debt + new_credit_draw) * (
-        interest_rate_annual_eff / 12.0
+            interest_rate_annual_eff / 12.0
     )
     financial_expenses = interest_payment + cost_partner_commission
 
@@ -342,9 +325,31 @@ def calculate_new_monthly_data(
     tax = max(0.0, profit_bt) * a.tax_rate
     net_cashflow = profit_bt - tax
 
+    required_credit_draw = max(0.0, -(state.cash + net_cashflow))
+    if required_credit_draw > new_credit_draw:
+        new_credit_draw = required_credit_draw
+        interest_rate_annual_eff = _effective_interest_rate_annual(
+            state.debt, annual_revenue_ttm, new_credit_draw, a
+        )
+        interest_payment = (state.debt + new_credit_draw) * (
+                interest_rate_annual_eff / 12.0
+        )
+        financial_expenses = interest_payment + cost_partner_commission
+        costs_ex_tax = (
+                cogs + operating_expenses + capital_expenditure + financial_expenses
+        )
+        profit_bt = revenue_total - costs_ex_tax
+        tax = max(0.0, profit_bt) * a.tax_rate
+        net_cashflow = profit_bt - tax
+
+    min_cash_required = max(0.0, -net_cashflow_pre_financing) * a.min_months_cash_reserve
+    projected_cash_after_financing = state.cash + net_cashflow + new_credit_draw
+    max_payable_debt_repayment = max(0.0, projected_cash_after_financing - min_cash_required)
+    debt_repayment = min(state.debt * a.debt_repay_factor, max_payable_debt_repayment)
+
     # Calculate next period's qualified pool
     qualified_pool_remaining_next = max(
-        0.0, state.qualified_pool_remaining - new_direct_leads
+        0.0, state.qualified_pool_remaining - direct_contacted_leads
     )
 
     return MonthlyCalculated(
@@ -365,19 +370,19 @@ def calculate_new_monthly_data(
         partner_pro_deals=partner_pro_deals,
         partner_ent_deals=partner_ent_deals,
         partner_commission_cost=partner_commission_cost,
-        conv_web_to_lead_eff=conv_web_to_lead_eff,
-        conv_website_lead_to_free_eff=conv_website_lead_to_free_eff,
-        conv_website_lead_to_pro_eff=conv_website_lead_to_pro_eff,
-        conv_website_lead_to_ent_eff=conv_website_lead_to_ent_eff,
-        direct_contacted_demo_conversion_eff=direct_contacted_demo_conversion_eff,
-        direct_demo_appointment_conversion_to_free_eff=direct_demo_appointment_conversion_to_free_eff,
-        direct_demo_appointment_conversion_to_pro_eff=direct_demo_appointment_conversion_to_pro_eff,
-        direct_demo_appointment_conversion_to_ent_eff=direct_demo_appointment_conversion_to_ent_eff,
-        upgrade_free_to_pro_eff=upgrade_free_to_pro_eff,
-        upgrade_pro_to_ent_eff=upgrade_pro_to_ent_eff,
-        churn_free_eff=churn_free_eff,
-        churn_pro_eff=churn_pro_eff,
-        churn_ent_eff=churn_ent_eff,
+        conv_web_to_lead_eff=a.conv_web_to_lead,
+        conv_website_lead_to_free_eff=a.conv_website_lead_to_free,
+        conv_website_lead_to_pro_eff=a.conv_website_lead_to_pro,
+        conv_website_lead_to_ent_eff=a.conv_website_lead_to_ent,
+        direct_contacted_demo_conversion_eff=a.direct_contacted_demo_conversion,
+        direct_demo_appointment_conversion_to_free_eff=a.direct_demo_appointment_conversion_to_free,
+        direct_demo_appointment_conversion_to_pro_eff=a.direct_demo_appointment_conversion_to_pro,
+        direct_demo_appointment_conversion_to_ent_eff=a.direct_demo_appointment_conversion_to_ent,
+        upgrade_free_to_pro_eff=a.conv_free_to_pro,
+        upgrade_pro_to_ent_eff=a.conv_pro_to_ent,
+        churn_free_eff=a.churn_free,
+        churn_pro_eff=a.churn_pro,
+        churn_ent_eff=a.churn_ent,
         ads_clicks=ads_clicks,
         domain_rating_next=domain_rating_next,
         qualified_pool_remaining_next=qualified_pool_remaining_next,
@@ -385,7 +390,7 @@ def calculate_new_monthly_data(
         website_leads=website_leads,
         website_leads_available=website_leads_available,
         annual_revenue_ttm=annual_revenue_ttm,
-        new_direct_leads=new_direct_leads,
+        new_direct_leads=direct_contacted_leads,
         direct_contacted_leads=direct_contacted_leads,
         direct_contacted_cost=direct_contacted_cost,
         new_direct_demo_appointments=new_direct_demo_appointments,
@@ -444,15 +449,22 @@ def calculate_new_monthly_data(
 
 
 def calculate_new_state(
-    state: State, monthly: MonthlyCalculated, a: Assumptions
+        state: State, monthly: MonthlyCalculated, a: Assumptions
 ) -> State:
     cash_next = (
-        state.cash + monthly.net_cashflow + monthly.new_credit_draw - monthly.debt_repayment
+            state.cash + monthly.net_cashflow + monthly.new_credit_draw - monthly.debt_repayment
     )
     debt_next = max(0.0, state.debt + monthly.new_credit_draw - monthly.debt_repayment)
     revenue_history = (*state.revenue_history, monthly.revenue_total)
     if len(revenue_history) > 12:
         revenue_history = revenue_history[-12:]
+
+    # Track renewed milestones
+    renewed_milestones = set(state.renewed_milestones)
+    if monthly.monthly_renewal_fee > 0:
+        # Find which milestone we just advanced to
+        milestone_next = _milestone_for_value(monthly.product_value_next, a)
+        renewed_milestones.add(milestone_next)
 
     return State(
         month=state.month + 1,
@@ -486,11 +498,12 @@ def calculate_new_state(
         website_leads=monthly.website_leads,
         direct_demo_appointments=monthly.new_direct_demo_appointments,
         revenue_history=revenue_history,
+        renewed_milestones=renewed_milestones,
     )
 
 
 def run_simulation(
-    a: Assumptions, decisions: MonthlyDecisions
+        a: Assumptions, decisions: MonthlyDecisions
 ) -> list[MonthlyCalculated]:
     state = State(
         month=0,
@@ -514,11 +527,11 @@ def run_simulation(
         d = decisions[t]
         # Calculate total spend for this month
         total_spend = (
-            d.ads_budget
-            + d.seo_budget
-            + d.dev_budget
-            + d.outreach_budget
-            + d.partner_budget
+                d.ads_budget
+                + d.seo_budget
+                + d.dev_budget
+                + d.outreach_budget
+                + d.partner_budget
         )
 
         monthly = calculate_new_monthly_data(state, a, d, spend_last_month)
@@ -553,11 +566,11 @@ def run_simulation_rows(a: Assumptions, decisions: MonthlyDecisions) -> list[dic
         d = decisions[t]
         # Calculate total spend for this month
         total_spend = (
-            d.ads_budget
-            + d.seo_budget
-            + d.dev_budget
-            + d.outreach_budget
-            + d.partner_budget
+                d.ads_budget
+                + d.seo_budget
+                + d.dev_budget
+                + d.outreach_budget
+                + d.partner_budget
         )
 
         monthly = calculate_new_monthly_data(state, a, d, spend_last_month)
@@ -578,6 +591,12 @@ def run_simulation_rows(a: Assumptions, decisions: MonthlyDecisions) -> list[dic
             "dev_spend": d.dev_budget,
             "partner_spend": d.partner_budget,
             "direct_candidate_outreach_spend": d.outreach_budget,
+            # Add decision attributes for plotting
+            "ads_budget": d.ads_budget,
+            "seo_budget": d.seo_budget,
+            "dev_budget": d.dev_budget,
+            "outreach_budget": d.outreach_budget,
+            "partner_budget": d.partner_budget,
         }
         rows.append(row)
         state = state_next

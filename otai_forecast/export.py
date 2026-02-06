@@ -268,10 +268,8 @@ def export(
         plot_financial_health_score,
         plot_growth_insights,
         plot_growth_metrics_heatmap,
-        plot_leads,
         plot_ltv_cac_analysis,
         plot_market_cap,
-        plot_monthly_revenue,
         plot_net_cashflow,
         plot_product_value,
         plot_results,
@@ -293,9 +291,7 @@ def export(
     plot_images["Revenue_Cashflow"] = plot_revenue_cashflow(df)
     plot_images["Cash_Position"] = plot_cash_position(df)
     plot_images["Market_Cap"] = plot_market_cap(df)
-    plot_images["Monthly_Revenue"] = plot_monthly_revenue(df)
     plot_images["Product_Value"] = plot_product_value(df)
-    plot_images["Leads"] = plot_leads(df)
     plot_images["Net_Cashflow"] = plot_net_cashflow(df)
     plot_images["TTM_Revenue"] = plot_ttm_revenue(df)
 
@@ -490,10 +486,9 @@ def export(
         "Revenue_Cashflow",
         "Cash_Position",
         "Market_Cap",
-        "Monthly_Revenue",
         "Product_Value",
-        "Leads",
         "Net_Cashflow",
+        "TTM_Revenue",
     ]
     for i, plot_name in enumerate(basic_plot_names):
         if plot_name in image_bytes:

@@ -580,24 +580,116 @@ def plot_cash_position(df: pd.DataFrame) -> go.Figure:
 
 
 def plot_market_cap(df: pd.DataFrame) -> go.Figure:
-    """Plot market cap over time."""
-    fig = go.Figure(
+    """Plot market cap with TTM Revenue, Cash, and Debt over time."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Primary Y-axis - Market Cap and TTM Revenue
+    fig.add_trace(
         go.Scatter(
             x=df["month"],
             y=_series_or_zeros(df, "market_cap"),
-            mode="lines+markers",
             name="Market Cap",
+            mode="lines+markers",
             line=dict(color="#F97316", width=3),
-        )
+        ),
+        secondary_y=False,
     )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "revenue_ttm"),
+            name="TTM Revenue",
+            mode="lines+markers",
+            line=dict(color="#14B8A6", width=2, dash="dot"),
+        ),
+        secondary_y=False,
+    )
+    
+    # Secondary Y-axis - Cash and Debt
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "cash"),
+            name="Cash",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=2),
+        ),
+        secondary_y=True,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "debt"),
+            name="Debt",
+            mode="lines+markers",
+            line=dict(color="#EF4444", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(239, 68, 68, 0.1)",
+        ),
+        secondary_y=True,
+    )
+    
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
-        title="Market Cap (TTM Revenue × Multiple)",
+        title="Market Cap with TTM Revenue, Cash, and Debt",
         hovermode="x unified",
-        showlegend=False,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     fig.update_xaxes(title_text="Month")
-    _apply_currency_axis(fig, title="Market Cap (€)")
+    _apply_currency_axis(fig, title="Market Cap / TTM Revenue (€)", row=1, col=1, secondary_y=False)
+    _apply_currency_axis(fig, title="Cash / Debt (€)", row=1, col=1, secondary_y=True)
+    return fig
+
+
+def plot_debt_interest_cash(df: pd.DataFrame) -> go.Figure:
+    """Plot debt with effective interest rate and cash position."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Primary Y-axis - Debt and Cash
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "debt"),
+            name="Debt",
+            mode="lines+markers",
+            line=dict(color="#EF4444", width=3),
+            fill="tozeroy",
+            fillcolor="rgba(239, 68, 68, 0.2)",
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "cash"),
+            name="Cash",
+            mode="lines+markers",
+            line=dict(color="#10B981", width=3),
+        ),
+        secondary_y=False,
+    )
+    
+    # Secondary Y-axis - Effective Interest Rate
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=_series_or_zeros(df, "interest_rate_annual_eff"),
+            name="Effective Interest Rate",
+            mode="lines+markers",
+            line=dict(color="#F59E0B", width=2, dash="dash"),
+        ),
+        secondary_y=True,
+    )
+    
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Debt, Cash Position & Effective Interest Rate",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(title_text="Month")
+    _apply_currency_axis(fig, title="Debt / Cash (€)", row=1, col=1, secondary_y=False)
+    _apply_percent_axis(fig, title="Effective Interest Rate", row=1, col=1, secondary_y=True)
     return fig
 
 
@@ -624,47 +716,45 @@ def plot_monthly_revenue(df: pd.DataFrame) -> go.Figure:
 
 
 def plot_product_value(df: pd.DataFrame) -> go.Figure:
-    """Plot product value over time."""
-    fig = go.Figure(
+    """Plot product value and development budget over time."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Primary Y-axis - Product Value
+    fig.add_trace(
         go.Scatter(
             x=df["month"],
             y=_series_or_zeros(df, "product_value"),
-            mode="lines+markers",
             name="Product Value",
+            mode="lines+markers",
             line=dict(color="#EF4444", width=3),
-        )
+        ),
+        secondary_y=False,
     )
-    fig.update_layout(
-        template=PLOTLY_TEMPLATE,
-        title="Product Value Over Time",
-        hovermode="x unified",
-        showlegend=False,
-    )
-    fig.update_xaxes(title_text="Month")
-    fig.update_yaxes(title_text="Product Value")
-    return fig
-
-
-def plot_leads(df: pd.DataFrame) -> go.Figure:
-    """Plot leads over time."""
-    fig = go.Figure(
+    
+    # Secondary Y-axis - Development Budget
+    fig.add_trace(
         go.Scatter(
             x=df["month"],
-            y=_series_or_zeros(df, "leads_total"),
+            y=_series_or_zeros(df, "dev_budget"),
+            name="Dev Budget",
             mode="lines+markers",
-            name="Total Leads",
-            line=dict(color="#0EA5E9", width=3),
-        )
+            line=dict(color="#F97316", width=2, dash="dot"),
+        ),
+        secondary_y=True,
     )
+    
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
-        title="Leads Over Time",
+        title="Product Value & Development Budget Over Time",
         hovermode="x unified",
-        showlegend=False,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     fig.update_xaxes(title_text="Month")
-    _apply_count_axis(fig, title="Leads")
+    fig.update_yaxes(title_text="Product Value", secondary_y=False)
+    _apply_currency_axis(fig, title="Dev Budget (€)", row=1, col=1, secondary_y=True)
     return fig
+
+
 
 
 def plot_net_cashflow(df: pd.DataFrame) -> go.Figure:
@@ -963,12 +1053,17 @@ def plot_unit_economics(df: pd.DataFrame) -> go.Figure:
         margin_per_user = arpu * 0.3
     margin_pct = _safe_divide(margin_per_user, arpu)
 
+    # Scale values to be more visible (multiply by 1000)
+    arpu_scaled = arpu * 1000
+    cost_per_user_scaled = cost_per_user * 1000
+    margin_per_user_scaled = margin_per_user * 1000
+
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
         go.Scatter(
             x=df["month"],
-            y=arpu,
-            name="ARPU",
+            y=arpu_scaled,
+            name="ARPU (×1000)",
             mode="lines+markers",
             line=dict(color="#10B981", width=3),
         ),
@@ -977,8 +1072,8 @@ def plot_unit_economics(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=df["month"],
-            y=cost_per_user,
-            name="Cost per User",
+            y=cost_per_user_scaled,
+            name="Cost per User (×1000)",
             mode="lines+markers",
             line=dict(color="#EF4444", width=3),
         ),
@@ -987,8 +1082,8 @@ def plot_unit_economics(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=df["month"],
-            y=margin_per_user,
-            name="Margin per User",
+            y=margin_per_user_scaled,
+            name="Margin per User (×1000)",
             mode="lines+markers",
             line=dict(color="#2563EB", width=3),
         ),
@@ -1006,12 +1101,12 @@ def plot_unit_economics(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
-        title="Unit Economics Analysis",
+        title="Unit Economics Analysis (Values scaled by 1000 for visibility)",
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     fig.update_xaxes(title_text="Month")
-    _apply_currency_axis(fig, title="Per User (€)", row=1, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Per User (€×1000)", row=1, col=1, secondary_y=False)
     _apply_percent_axis(fig, title="Margin %", row=1, col=1, secondary_y=True)
     return fig
 
@@ -1117,7 +1212,7 @@ def plot_customer_acquisition_channels(df: pd.DataFrame) -> go.Figure:
 
 
 def plot_financial_health_score(df: pd.DataFrame) -> go.Figure:
-    """Plot a comprehensive financial health score."""
+    """Plot a simplified financial health score."""
     cash_months = _safe_divide(
         _series_or_zeros(df, "cash"),
         -_series_or_zeros(df, "net_cashflow").clip(upper=0).replace(0, 1),
@@ -1136,36 +1231,6 @@ def plot_financial_health_score(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=df["month"],
-            y=cash_score,
-            name="Cash Runway",
-            stackgroup="score",
-            mode="lines",
-            line=dict(width=0.5, color="#10B981"),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df["month"],
-            y=growth_score,
-            name="Growth",
-            stackgroup="score",
-            mode="lines",
-            line=dict(width=0.5, color="#2563EB"),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df["month"],
-            y=profitability_score,
-            name="Profitability",
-            stackgroup="score",
-            mode="lines",
-            line=dict(width=0.5, color="#EF4444"),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df["month"],
             y=health_score,
             name="Overall Health Score",
             mode="lines+markers",
@@ -1173,6 +1238,7 @@ def plot_financial_health_score(df: pd.DataFrame) -> go.Figure:
         )
     )
 
+    # Add simplified zones
     fig.add_hrect(y0=0, y1=30, fillcolor="#FEE2E2", opacity=0.4, line_width=0)
     fig.add_hrect(y0=30, y1=70, fillcolor="#FEF3C7", opacity=0.4, line_width=0)
     fig.add_hrect(y0=70, y1=100, fillcolor="#DCFCE7", opacity=0.4, line_width=0)
@@ -1181,7 +1247,12 @@ def plot_financial_health_score(df: pd.DataFrame) -> go.Figure:
         template=PLOTLY_TEMPLATE,
         title="Financial Health Score",
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        showlegend=False,
+        annotations=[
+            dict(x=0.02, y=15, text="Poor", showarrow=False, font=dict(size=12)),
+            dict(x=0.02, y=50, text="Fair", showarrow=False, font=dict(size=12)),
+            dict(x=0.02, y=85, text="Good", showarrow=False, font=dict(size=12)),
+        ]
     )
     fig.update_xaxes(title_text="Month")
     fig.update_yaxes(title_text="Score (0-100)", range=[0, 100])
@@ -1249,6 +1320,100 @@ def plot_enhanced_dashboard(df: pd.DataFrame, save_path: str | None = None) -> g
     if save_path:
         fig.write_image(save_path, scale=2)
 
+    return fig
+
+
+def plot_decision_attributes(df: pd.DataFrame) -> go.Figure:
+    """Plot decision attributes (budgets and price overrides) over time."""
+    
+    # Budget categories with their colors and labels
+    budget_cols = [
+        ("ads_budget", "Ads Budget", "#2563EB"),
+        ("seo_budget", "SEO Budget", "#10B981"),
+        ("dev_budget", "Dev Budget", "#F97316"),
+        ("outreach_budget", "Outreach Budget", "#EF4444"),
+        ("partner_budget", "Partner Budget", "#8B5CF6"),
+    ]
+    
+    # Create subplot for budgets and prices
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        subplot_titles=(
+            "Monthly Budget Allocations",
+            "Price Overrides (if set)",
+        ),
+        vertical_spacing=0.12,
+    )
+    
+    # Plot budgets as stacked area chart
+    for col, label, color in budget_cols:
+        fig.add_trace(
+            go.Scatter(
+                x=df["month"],
+                y=_series_or_zeros(df, col),
+                name=label,
+                stackgroup="budgets",
+                mode="lines",
+                line=dict(width=0.5, color=color),
+                hovertemplate="%{fullData.name}<br>Month: %{x}<br>Amount: €%{y:,.0f}<extra></extra>",
+            ),
+            row=1,
+            col=1,
+        )
+    
+    # Plot total budget as line overlay
+    total_budget = sum(_series_or_zeros(df, col) for col, _, _ in budget_cols)
+    fig.add_trace(
+        go.Scatter(
+            x=df["month"],
+            y=total_budget,
+            name="Total Budget",
+            mode="lines+markers",
+            line=dict(color="#111827", width=2, dash="dash"),
+            hovertemplate="Total Budget<br>Month: %{x}<br>Amount: €%{y:,.0f}<extra></extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    
+    # Update layout
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        title="Decision Attributes Over Time",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=650,
+    )
+    
+    # Update axes
+    fig.update_xaxes(title_text="Month", row=1, col=1)
+    fig.update_xaxes(title_text="Month", row=2, col=1)
+    
+    _apply_currency_axis(fig, title="Budget (€)", row=1, col=1)
+    _apply_currency_axis(fig, title="Price (€)", row=2, col=1)
+    
+    # Add budget allocation percentages as annotations on the last month
+    if len(df) > 0:
+        last_month_idx = len(df) - 1
+        total_last = total_budget.iloc[last_month_idx]
+        if total_last > 0:
+            y_pos = 0
+            for col, label, color in budget_cols:
+                amount = _series_or_zeros(df, col).iloc[last_month_idx]
+                if amount > 0:
+                    pct = (amount / total_last) * 100
+                    fig.add_annotation(
+                        text=f"{label}: {pct:.1f}%",
+                        x=df["month"].iloc[last_month_idx],
+                        y=y_pos + amount / 2,
+                        showarrow=False,
+                        font=dict(size=10, color="white"),
+                        row=1,
+                        col=1,
+                    )
+                    y_pos += amount
+    
     return fig
 
 

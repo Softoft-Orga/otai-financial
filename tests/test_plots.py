@@ -15,10 +15,8 @@ from otai_forecast.plots import (
     plot_financial_health_score,
     plot_growth_insights,
     plot_growth_metrics_heatmap,
-    plot_leads,
     plot_ltv_cac_analysis,
     plot_market_cap,
-    plot_monthly_revenue,
     plot_net_cashflow,
     plot_product_value,
     plot_results,
@@ -87,9 +85,7 @@ def test_individual_plots(sample_df):
     """Test all individual plot functions."""
     plots = [
         plot_cash_position,
-        plot_leads,
         plot_market_cap,
-        plot_monthly_revenue,
         plot_net_cashflow,
         plot_product_value,
         plot_ttm_revenue,

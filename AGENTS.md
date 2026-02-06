@@ -108,6 +108,10 @@ def test_complex_business_logic():
 - **Keep AGENTS.md short**: Update when changes occur, but maintain brevity - focus on guidelines, not implementation details
 - **Tests must stay current**: All code changes require corresponding test updates to maintain coverage
 
+### Working with Temporary Files
+- **Use `.tmp/` folder**: Store small test files, quick experiments, and temporary outputs in the `.tmp/` directory
+- **Clean up regularly**: Remove outdated test files from `.tmp/` to keep the workspace organized
+
 ### Simulation Specifics
 - Monthly granularity for all time-based variables
 - Forward simulation only (no prediction)
@@ -117,14 +121,11 @@ def test_complex_business_logic():
 ## Running the System
 
 ```bash
-# Web interface
-streamlit run streamlit_app.py
-
 # Full pipeline
-python -m otai_forecast.run
+uv run otai_forecast.run
 
 # Tests
-pytest tests/
+uv run pytest tests/
 ```
 
 Remember: This is a simulation tool for exploring business scenarios, not a prediction system. Focus on modeling realistic business dynamics and constraints.

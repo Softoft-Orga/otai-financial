@@ -13,7 +13,6 @@ class TestSimulator(unittest.TestCase):
         self.a = DEFAULT_ASSUMPTIONS.model_copy(update={
             "months": 3,
             "starting_cash": 100_000.0,
-            "base_organic_users_per_month": 2_000.0,
             "conv_web_to_lead": 0.03,
             "conv_website_lead_to_free": 0.20,
             "conv_website_lead_to_pro": 0.03,

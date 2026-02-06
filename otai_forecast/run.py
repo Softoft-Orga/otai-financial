@@ -8,6 +8,10 @@ from otai_forecast.export import export
 from otai_forecast.models import MonthlyDecision
 from otai_forecast.plots import plot_enhanced_dashboard
 
+OPTIMIZER_KNOT_LOWS = [0.1, 0.15, 0.2, 0.35, 0.5, 0.75, 1.0, 1.25, 1.5]
+OPTIMIZER_KNOT_HIGHS = [1.5, 2.0, 2.5, 3.0, 3.5, 4.5, 5.5, 6.5, 7.5]
+OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE = 0.5
+
 
 def run() -> None:
     a = DEFAULT_ASSUMPTIONS
@@ -24,8 +28,15 @@ def run() -> None:
         for _ in range(a.months)
     ]
 
-    decisions, df = choose_best_decisions_by_market_cap(a, base_decisions, num_knots=9, knot_low=0, knot_high=10,
-                                                        max_evals=10_000)
+    decisions, df = choose_best_decisions_by_market_cap(
+        a,
+        base_decisions,
+        num_knots=9,
+        knot_lows=OPTIMIZER_KNOT_LOWS,
+        knot_highs=OPTIMIZER_KNOT_HIGHS,
+        max_monthly_multiplier_change=OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE,
+        max_evals=10_000,
+    )
 
     # Export the complete report with all plots
     export(

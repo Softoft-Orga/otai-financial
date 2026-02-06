@@ -29,7 +29,6 @@ class Assumptions(BaseModel):
 
     # Initial Financial State
     starting_cash: float = Field(ge=0, description="Initial cash on hand at month 0. Must be >= 0.")
-    base_organic_users_per_month: float = Field(ge=0, description="Baseline organic users acquired per month without any SEO. Must be >= 0.")
 
     # CPC (Cost Per Click) Model - Dynamic with diminishing returns
     cpc_base: float = Field(ge=0, description="Base CPC at zero ad spend. Must be >= 0.")
@@ -76,6 +75,18 @@ class Assumptions(BaseModel):
     # Sales & Support Costs
     sales_cost_per_new_pro: float = Field(ge=0, description="Sales cost for each new pro customer. Must be >= 0.")
     sales_cost_per_new_ent: float = Field(ge=0, description="Sales cost for each new enterprise customer. Must be >= 0.")
+    it_infra_cost_per_free_deal: float = Field(
+        ge=0,
+        description="IT infrastructure cost for each new free deal. Must be >= 0.",
+    )
+    it_infra_cost_per_pro_deal: float = Field(
+        ge=0,
+        description="IT infrastructure cost for each new pro deal. Must be >= 0.",
+    )
+    it_infra_cost_per_ent_deal: float = Field(
+        ge=0,
+        description="IT infrastructure cost for each new enterprise deal. Must be >= 0.",
+    )
     support_cost_per_pro: float = Field(ge=0, description="Monthly support cost per pro user. Must be >= 0.")
     support_cost_per_ent: float = Field(ge=0, description="Monthly support cost per enterprise user. Must be >= 0.")
     support_subscription_fee_pct_pro: float = Field(ge=0, le=1)
@@ -105,8 +116,11 @@ class Assumptions(BaseModel):
 
     # Debt & Credit Model
     debt_interest_rate_base_annual: float = Field(ge=0, description="Base annual interest rate (used with revenue scaling). Must be >= 0.")
+    debt_interest_rate_sensitivity_factor: float = Field(ge=0, description="Sensitivity factor for debt interest rate scaling with revenue. Higher values make rates decrease slower with revenue. Must be >= 0.")
     credit_draw_factor: float = Field(ge=0, description="Multiplier applied to negative cashflow for credit draw.")
     debt_repay_factor: float = Field(ge=0, description="Multiplier applied to positive cashflow for debt repayment.")
+    min_months_cash_reserve: float = Field(gt=0, description="Minimum months of cash reserves to maintain. Must be > 0.")
+    minimum_liquidity_ratio: float = Field(ge=0, le=1, description="Minimum liquidity ratio as (cash + product_value + revenue) / debt. Must be in [0, 1].")
 
     # Product Value Model - Accumulates with dev spend, decays without
     pv_init: float = Field(ge=0, description="Initial product value at month 0. Must be >= 0.")
@@ -215,6 +229,15 @@ class Assumptions(BaseModel):
     model_config = {"frozen": True}
 
 
+class ScenarioAssumptions(BaseModel):
+    """Named assumption scenario used for optimization and persistence."""
+
+    name: str = Field(min_length=1)
+    assumptions: Assumptions
+
+    model_config = {"frozen": True}
+
+
 class MonthlyDecision(BaseModel):
     """Monthly decision variables that control the simulation.
 
@@ -232,10 +255,6 @@ class MonthlyDecision(BaseModel):
     # Sales & Outreach
     outreach_budget: float = Field(ge=0, description="Monthly spend on prospect scraping tools/services. Must be >= 0.")
     partner_budget: float = Field(ge=0, description="Monthly spend on partner program management. Must be >= 0.")
-    
-    # Optional price overrides (for testing or manual control)
-    pro_price_override: float | None = Field(default=None, description="Optional override for pro plan price. If None, uses dynamic pricing.")
-    ent_price_override: float | None = Field(default=None, description="Optional override for enterprise plan price. If None, uses dynamic pricing.")
 
     # Add reasonable upper bounds for budgets
     @field_validator('ads_budget', 'seo_budget', 'dev_budget', 'outreach_budget', 'partner_budget')
@@ -243,13 +262,6 @@ class MonthlyDecision(BaseModel):
     def budget_reasonable_upper_bound(cls, v: float) -> float:
         if v > 10_000_000:  # Max €10M per month for any budget
             raise ValueError('Monthly budgets must be <= €10M for realistic business modeling')
-        return v
-
-    @field_validator('pro_price_override', 'ent_price_override')
-    @classmethod
-    def price_override_reasonable_bound(cls, v: float | None) -> float | None:
-        if v is not None and v > 100_000:  # Max €100k for price overrides
-            raise ValueError('Price overrides must be <= €100,000 for realistic business modeling')
         return v
 
     model_config = {"frozen": True}
@@ -288,6 +300,10 @@ class State(BaseModel):
     revenue_history: tuple[float, ...] = Field(
         default_factory=tuple,
         description="Trailing revenue history (up to 12 months).",
+    )
+    renewed_milestones: set[int] = Field(
+        default_factory=set,
+        description="Set of milestone indices that have already been renewed.",
     )
 
     # Add reasonable upper bounds

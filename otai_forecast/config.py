@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from .models import Assumptions, PricingMilestone, ScenarioAssumptions
+from .models import Assumptions, MonthlyDecision, PricingMilestone, ScenarioAssumptions
 
 # Default assumptions used across the application
 DEFAULT_ASSUMPTIONS = Assumptions(
-    months=36,  # 3-year simulation horizon typical for SaaS financial planning
+    months=24,  # 2-year simulation horizon typical for SaaS financial planning
     starting_cash=25000.0,  # Initial seed capital - THIS IS DEFINITIVE
     # CPC (Cost Per Click) parameters - realistic range for B2B SaaS is 1.5-7 EUR
     cpc_base=2,  # Base CPC at low spend levels (best case scenario)
@@ -22,7 +22,7 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     domain_rating_spend_sensitivity=0.1,
     # ? How exactly calculated ? Growth coefficient for DR improvement from SEO spend
     domain_rating_reference_spend_eur=100.0,  # Reference monthly SEO spend for DR growth calculations
-    domain_rating_decay=0.01,  # Natural monthly decay of domain rating without maintenance
+    domain_rating_decay=0.02,  # Natural monthly decay of domain rating without maintenance
     # Conversion funnel rates (typical B2B SaaS benchmarks)
     conv_web_to_lead=0.05,  # 5% of website visitors become leads (more conservative)
     conv_website_lead_to_free=0.4,
@@ -45,14 +45,14 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     pricing_milestones=(
         PricingMilestone(product_value_min=0.0, pro_price=2500.0, ent_price=10000.0),
         PricingMilestone(product_value_min=100_000.0, pro_price=5000.0, ent_price=20000.0),
-        PricingMilestone(product_value_min=200_000.0, pro_price=6000.0, ent_price=22500.0),
+        PricingMilestone(product_value_min=250_000.0, pro_price=6000.0, ent_price=22500.0),
         PricingMilestone(product_value_min=500_000.0, pro_price=6500.0, ent_price=25000.0),
         PricingMilestone(product_value_min=1_000_000.0, pro_price=8_000.0, ent_price=30_000.0),
         PricingMilestone(product_value_min=2_500_000.0, pro_price=9_000.0, ent_price=35_000.0),
     ),
 
     tax_rate=0.25,  # Corporate tax rate (25% - typical for many European countries)
-    market_cap_multiple=8.0,  # Revenue multiple for valuation (8x TTM revenue - realistic for growing SaaS)
+    market_cap_multiple=4.0,  # Revenue multiple for valuation (8x TTM revenue - realistic for growing SaaS)
     # Sales costs (one-time cost per new customer acquisition)
     # There must e differentation between the direct and the organic/website
     sales_cost_per_new_pro=200.0,  # There are already direct outreach, payment and other costs!
@@ -91,6 +91,7 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     credit_draw_factor=1.25,
     debt_repay_factor=0.25,
     min_months_cash_reserve=3.0,  # Maintain 3 months of cash reserves
+    minimum_cash_balance=5_000.0,  # Minimum cash balance for optimizer constraint
     minimum_liquidity_ratio=0.25,  # Minimum (cash + product_value) / debt
     # Product value dynamics (dev spend accumulation with depreciation)
     pv_init=80_000.0,  # Initial product value (starting milestone)
@@ -103,61 +104,119 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     dev_capex_ratio=0.3,  # Portion of dev spend that is capitalized as CAPEX (30%)
 )
 
-CONSERVATIVE_ASSUMPTIONS = DEFAULT_ASSUMPTIONS.model_copy(
-    update={
-        "seo_users_per_eur": 0.4,
-        "conv_web_to_lead": 0.035,
-        "conv_website_lead_to_free": 0.35,
-        "conv_website_lead_to_pro": 0.0075,
-        "conv_website_lead_to_ent": 0.003,
-        "direct_contacted_demo_conversion": 0.008,
-        "direct_demo_appointment_conversion_to_pro": 0.08,
-        "direct_demo_appointment_conversion_to_ent": 0.04,
-        "conv_free_to_pro": 0.008,
-        "conv_pro_to_ent": 0.004,
-        "churn_free": 0.07,
-        "churn_pro": 0.06,
-        "churn_ent": 0.05,
-    }
+DEFAULT_DECISION = MonthlyDecision(
+    ads_budget=1000.0,
+    seo_budget=1000.0,
+    dev_budget=1000.0,
+    partner_budget=1000.0,
+    outreach_budget=1000.0,
 )
 
-OPTIMISTIC_ASSUMPTIONS = DEFAULT_ASSUMPTIONS.model_copy(
-    update={
-        "seo_users_per_eur": 0.7,
-        "conv_web_to_lead": 0.07,
-        "conv_website_lead_to_free": 0.45,
-        "conv_website_lead_to_pro": 0.02,
-        "conv_website_lead_to_ent": 0.01,
-        "direct_contacted_demo_conversion": 0.015,
-        "direct_demo_appointment_conversion_to_pro": 0.15,
-        "direct_demo_appointment_conversion_to_ent": 0.08,
-        "conv_free_to_pro": 0.02,
-        "conv_pro_to_ent": 0.01,
-        "churn_free": 0.04,
-        "churn_pro": 0.03,
-        "churn_ent": 0.02,
-    }
+RUN_BASE_DECISION = DEFAULT_DECISION
+
+OPTIMIZER_NUM_KNOTS = 9
+OPTIMIZER_KNOT_LOWS = [0.1 + 0.2 * (i + 1) for i in range(OPTIMIZER_NUM_KNOTS)]
+OPTIMIZER_KNOT_HIGHS = [8 * 2 ** (i + 2) for i in range(OPTIMIZER_NUM_KNOTS)]
+
+
+def build_base_decisions(months: int, base_decision: MonthlyDecision) -> list[MonthlyDecision]:
+    return [base_decision.model_copy() for _ in range(months)]
+
+
+def _scale_assumptions(
+    base: Assumptions,
+    multipliers: dict[str, float],
+) -> Assumptions:
+    return base.model_copy(
+        update={
+            field: getattr(base, field) * multiplier
+            for field, multiplier in multipliers.items()
+        }
+    )
+
+CONSERVATIVE_MULTIPLIERS: dict[str, float] = {
+    "seo_users_per_eur": 0.8,
+    "conv_web_to_lead": 0.7,
+    "conv_website_lead_to_free": 0.875,
+    "conv_website_lead_to_pro": 0.75,
+    "conv_website_lead_to_ent": 0.6,
+    "direct_contacted_demo_conversion": 0.8,
+    "direct_demo_appointment_conversion_to_pro": 0.8,
+    "direct_demo_appointment_conversion_to_ent": 0.8,
+    "conv_free_to_pro": 0.8,
+    "conv_pro_to_ent": 0.8,
+    "churn_free": 1.4,
+    "churn_pro": 1.2,
+    "churn_ent": 1.0,
+}
+
+CONSERVATIVE_ASSUMPTIONS = _scale_assumptions(
+    DEFAULT_ASSUMPTIONS,
+    CONSERVATIVE_MULTIPLIERS,
 )
 
-WITH_INVESTMENT_ASSUMPTIONS = DEFAULT_ASSUMPTIONS.model_copy(
-    update={
-        "starting_cash": 250_000.0,
-    }
+OPTIMISTIC_MULTIPLIERS: dict[str, float] = {
+    "seo_users_per_eur": 1.4,
+    "conv_web_to_lead": 1.4,
+    "conv_website_lead_to_free": 1.125,
+    "conv_website_lead_to_pro": 2.0,
+    "conv_website_lead_to_ent": 2.0,
+    "direct_contacted_demo_conversion": 1.5,
+    "direct_demo_appointment_conversion_to_pro": 1.5,
+    "direct_demo_appointment_conversion_to_ent": 1.6,
+    "conv_free_to_pro": 2.0,
+    "conv_pro_to_ent": 2.0,
+    "churn_free": 0.8,
+    "churn_pro": 0.6,
+    "churn_ent": 0.4,
+}
+
+OPTIMISTIC_ASSUMPTIONS = _scale_assumptions(
+    DEFAULT_ASSUMPTIONS,
+    OPTIMISTIC_MULTIPLIERS,
 )
 
-WITHOUT_INVESTMENT_ASSUMPTIONS = DEFAULT_ASSUMPTIONS.model_copy(
-    update={
-        "starting_cash": 10_000.0,
-    }
-)
+INVESTMENT_STARTING_CASH = 250_000.0
+
+
+def _with_investment(base: Assumptions) -> Assumptions:
+    return base.model_copy(update={"starting_cash": INVESTMENT_STARTING_CASH})
+
+
+def _without_investment(base: Assumptions) -> Assumptions:
+    return base.model_copy(update={"starting_cash": DEFAULT_ASSUMPTIONS.starting_cash})
+
+
+CONSERVATIVE_WITH_INVESTMENT = _with_investment(CONSERVATIVE_ASSUMPTIONS)
+CONSERVATIVE_WITHOUT_INVESTMENT = _without_investment(CONSERVATIVE_ASSUMPTIONS)
+REALISTIC_WITH_INVESTMENT = _with_investment(DEFAULT_ASSUMPTIONS)
+REALISTIC_WITHOUT_INVESTMENT = _without_investment(DEFAULT_ASSUMPTIONS)
+OPTIMISTIC_WITH_INVESTMENT = _with_investment(OPTIMISTIC_ASSUMPTIONS)
+OPTIMISTIC_WITHOUT_INVESTMENT = _without_investment(OPTIMISTIC_ASSUMPTIONS)
 
 SCENARIO_ASSUMPTIONS: tuple[ScenarioAssumptions, ...] = (
-    ScenarioAssumptions(name="Conservative", assumptions=CONSERVATIVE_ASSUMPTIONS),
-    ScenarioAssumptions(name="Realistic", assumptions=DEFAULT_ASSUMPTIONS),
-    ScenarioAssumptions(name="Optimistic", assumptions=OPTIMISTIC_ASSUMPTIONS),
-    ScenarioAssumptions(name="With Investment", assumptions=WITH_INVESTMENT_ASSUMPTIONS),
     ScenarioAssumptions(
-        name="Without Investment",
-        assumptions=WITHOUT_INVESTMENT_ASSUMPTIONS,
+        name="Conservative (Without Investment)",
+        assumptions=CONSERVATIVE_WITHOUT_INVESTMENT,
+    ),
+    ScenarioAssumptions(
+        name="Conservative (With Investment)",
+        assumptions=CONSERVATIVE_WITH_INVESTMENT,
+    ),
+    ScenarioAssumptions(
+        name="Realistic (Without Investment)",
+        assumptions=REALISTIC_WITHOUT_INVESTMENT,
+    ),
+    ScenarioAssumptions(
+        name="Realistic (With Investment)",
+        assumptions=REALISTIC_WITH_INVESTMENT,
+    ),
+    ScenarioAssumptions(
+        name="Optimistic (Without Investment)",
+        assumptions=OPTIMISTIC_WITHOUT_INVESTMENT,
+    ),
+    ScenarioAssumptions(
+        name="Optimistic (With Investment)",
+        assumptions=OPTIMISTIC_WITH_INVESTMENT,
     ),
 )

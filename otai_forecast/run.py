@@ -1,54 +1,120 @@
 from __future__ import annotations
 
-from otai_forecast.config import DEFAULT_ASSUMPTIONS
+import argparse
+from pathlib import Path
+
+from otai_forecast.config import (
+    OPTIMIZER_KNOT_HIGHS,
+    OPTIMIZER_KNOT_LOWS,
+    OPTIMIZER_NUM_KNOTS,
+    RUN_BASE_DECISION,
+    SCENARIO_ASSUMPTIONS,
+    build_base_decisions,
+)
 from otai_forecast.decision_optimizer import (
     choose_best_decisions_by_market_cap,
+    run_simulation_df,
 )
-from otai_forecast.export import export
-from otai_forecast.models import MonthlyDecision
+from otai_forecast.export import export_scenarios
+from otai_forecast.models import Assumptions, MonthlyDecision, ScenarioAssumptions
+from otai_forecast.optimization_storage import (
+    assumptions_hash,
+    load_optimization,
+    save_optimization,
+)
 from otai_forecast.plots import plot_enhanced_dashboard
 
-OPTIMIZER_KNOT_LOWS = [0.1, 0.15, 0.2, 0.35, 0.5, 0.75, 1.0, 1.25, 1.5]
-OPTIMIZER_KNOT_HIGHS = [1.5, 2.0, 2.5, 3.0, 3.5, 4.5, 5.5, 6.5, 7.5]
-OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE = 0.5
+OPTIMIZATION_DIR = Path(__file__).resolve().parent.parent / "data" / "optimizations"
 
 
-def run() -> None:
-    a = DEFAULT_ASSUMPTIONS
+def _scenario_name_from_payload(
+    payload: dict,
+    default_name: str,
+) -> str:
+    raw_scenarios = payload.get("assumption_scenarios")
+    if not isinstance(raw_scenarios, list):
+        return default_name
+    for scenario in raw_scenarios:
+        if not isinstance(scenario, dict):
+            continue
+        try:
+            scenario_obj = ScenarioAssumptions(**scenario)
+        except Exception:
+            continue
+        if assumptions_hash(scenario_obj.assumptions) == payload.get("assumption_hash"):
+            return scenario_obj.name
+    return default_name
 
-    # Create simple constant decisions - optimizer will find the optimal values
-    base_decisions = [
-        MonthlyDecision(
-            ads_budget=1000.0,
-            seo_budget=1000.0,
-            dev_budget=2000.0,
-            partner_budget=500.0,
-            outreach_budget=1000.0,
+
+def _load_payload_results(payload: dict) -> tuple[Assumptions, list[MonthlyDecision]]:
+    assumptions = Assumptions(**payload["assumptions"])
+    decisions = [MonthlyDecision(**decision) for decision in payload["decisions"]]
+    return assumptions, decisions
+
+
+def run(*, use_existing_results: bool = False) -> None:
+    scenario_results = []
+
+    for scenario in SCENARIO_ASSUMPTIONS:
+        assumptions = scenario.assumptions
+        assumption_key = assumptions_hash(assumptions)
+        payload = load_optimization(OPTIMIZATION_DIR, assumption_key)
+
+        if use_existing_results:
+            if payload is None:
+                raise FileNotFoundError(
+                    f"No stored optimization found for {scenario.name} ({assumption_key})."
+                )
+            assumptions, decisions = _load_payload_results(payload)
+        else:
+            # Create simple constant decisions - optimizer will find the optimal values
+            base_decisions = build_base_decisions(assumptions.months, RUN_BASE_DECISION)
+
+            decisions, df = choose_best_decisions_by_market_cap(
+                assumptions,
+                base_decisions,
+                num_knots=OPTIMIZER_NUM_KNOTS,
+                knot_lows=OPTIMIZER_KNOT_LOWS,
+                knot_highs=OPTIMIZER_KNOT_HIGHS,
+                max_evals=1_000,
+            )
+            save_optimization(
+                assumptions,
+                decisions,
+                df,
+                base_dir=OPTIMIZATION_DIR,
+                scenario_assumptions=SCENARIO_ASSUMPTIONS,
+            )
+
+        df = run_simulation_df(assumptions, decisions)
+        scenario_name = (
+            _scenario_name_from_payload(payload, scenario.name)
+            if payload
+            else scenario.name
         )
-        for _ in range(a.months)
-    ]
 
-    decisions, df = choose_best_decisions_by_market_cap(
-        a,
-        base_decisions,
-        num_knots=9,
-        knot_lows=OPTIMIZER_KNOT_LOWS,
-        knot_highs=OPTIMIZER_KNOT_HIGHS,
-        max_monthly_multiplier_change=OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE,
-        max_evals=10_000,
-    )
+        scenario_results.append(
+            {
+                "name": scenario_name,
+                "df": df,
+                "assumptions": assumptions,
+                "decisions": decisions,
+            }
+        )
 
     # Export the complete report with all plots
-    export(
-        df,
+    export_scenarios(
+        scenario_results,
         out_path="../data/OTAI_Simulation_Report.xlsx",
-        assumptions=a,
-        monthly_decisions=decisions,
     )
 
     # Also save the dashboard plot separately
-    plot_enhanced_dashboard(df, save_path="OTAI_Simulation_Plots.png")
+    if scenario_results:
+        plot_enhanced_dashboard(
+            scenario_results[0]["df"],
+            save_path="OTAI_Simulation_Plots.png",
+        )
 
 
 if __name__ == "__main__":
-    run()
+    run(use_existing_results=False)

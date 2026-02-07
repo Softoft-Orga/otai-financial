@@ -87,7 +87,7 @@ DR_next = DR × (1 - decay) + (DR_max - DR) × k × ln(1 + spend / spend_ref)
 - **DR max**: 100
 - **Sensitivity k**: 0.10
 - **Reference spend**: 100 EUR
-- **Monthly decay**: 1.0%
+- **Monthly decay**: 2.0%
 
 ### Product value update
 

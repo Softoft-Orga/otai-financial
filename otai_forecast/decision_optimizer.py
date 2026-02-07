@@ -193,8 +193,6 @@ def choose_best_decisions_by_market_cap(
         knot_high: float = 5.0,
         knot_lows: list[float] | None = None,
         knot_highs: list[float] | None = None,
-        max_knot_delta: float | None = None,
-        max_monthly_multiplier_change: float | None = None,
 ) -> tuple[list[MonthlyDecision], pd.DataFrame]:
     """
     Optimize decisions using Optuna with TPE sampler.
@@ -232,7 +230,7 @@ def choose_best_decisions_by_market_cap(
     sampler = optuna.samplers.TPESampler(seed=seed)
     pruner = optuna.pruners.MedianPruner(
         n_startup_trials=10,  # Don't prune first 10 trials
-        n_warmup_steps=3,  # Don't prune first 3 months
+        n_warmup_steps=2,  # Don't prune first 3 months
     )
     if study_name is None:
         import random
@@ -295,31 +293,27 @@ def choose_best_decisions_by_market_cap(
                 raise optuna.exceptions.TrialPruned()
 
         # Check if cash went too small (constraint violation)
-        if df["cash"].min() < 5_000:
+        if df["cash"].min() < a.minimum_cash_balance:
             # Return a small value for constraint violations
             raise optuna.exceptions.TrialPruned()
 
-        # Check liquidity constraint: (cash + product_value + revenue) / debt > assumptions.minimum_liquidity_ratio
-        # Use each month's own revenue for accurate evaluation
-        # Calculate liquidity ratio for each month using its own revenue
+        # Check liquidity constraint using liquid assets proxy:
+        # cash + product_value + one-month average revenue (TTM/12) / debt
         # Avoid division by zero by handling months with no debt
         liquidity_ratios = df.apply(
-            lambda row: (row["cash"] + row["product_value"]) / (row["debt"] + 1),
-            axis=1
+            lambda row: (
+                row["cash"] + row["product_value"] + (row["revenue_ttm"] / 12)
+            ) / (row["debt"] + 1),
+            axis=1,
         )
 
-        # Only check months with meaningful revenue (e.g., > €10,000/month TTM)
-        # This avoids false violations in early months with near-zero revenue
-        meaningful_months = df["revenue_ttm"] > 1_000
         final_market_cap = float(df["market_cap"].iloc[-1])
-        if meaningful_months.any():
-            # Find the worst (minimum) liquidity ratio among meaningful months
-            min_liquidity_ratio = liquidity_ratios[meaningful_months].min()
+        min_liquidity_ratio = liquidity_ratios.min()
 
-            # Check if liquidity constraint is violated (ratio too low)
-            if min_liquidity_ratio < a.minimum_liquidity_ratio:
-                # Penalize based on how much the constraint is violated
-                return final_market_cap - (a.minimum_liquidity_ratio - min_liquidity_ratio) * final_market_cap
+        # Check if liquidity constraint is violated (ratio too low)
+        if min_liquidity_ratio < a.minimum_liquidity_ratio:
+            # Penalize based on how much the constraint is violated
+            return final_market_cap - (a.minimum_liquidity_ratio - min_liquidity_ratio) * final_market_cap
 
         # Return final market cap as objective
         return final_market_cap

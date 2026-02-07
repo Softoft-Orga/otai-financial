@@ -12,9 +12,9 @@ The market cap multiple determines the company's valuation based on trailing twe
 
 | Metric | Value |
 | --- | --- |
-| Months | 36 |
+| Months | 24 |
 | Starting cash | 25,000.00 EUR |
-| Market cap multiple | 8.00x |
+| Market cap multiple | 4.00x |
 | Tax rate | 25.00% |
 
 ## Acquisition Levers
@@ -46,7 +46,7 @@ DR naturally decays over time without ongoing investment, requiring consistent s
 | Domain rating max | 100.00 |
 | DR spend sensitivity | 0.10 |
 | DR reference spend | 100.00 EUR |
-| DR monthly decay | 1.00% |
+| DR monthly decay | 2.00% |
 
 ## Conversion Funnel
 
@@ -115,7 +115,7 @@ This models a real-world scenario where SaaS companies increase prices as their 
 | --- | --- | --- | --- |
 | v1 | 0.00 EUR | 2,500.00 EUR | 10,000.00 EUR |
 | v2 | 100,000.00 EUR | 5,000.00 EUR | 20,000.00 EUR |
-| v3 | 200,000.00 EUR | 6,000.00 EUR | 22,500.00 EUR |
+| v3 | 250,000.00 EUR | 6,000.00 EUR | 22,500.00 EUR |
 | v4 | 500,000.00 EUR | 6,500.00 EUR | 25,000.00 EUR |
 | v5 | 1,000,000.00 EUR | 8,000.00 EUR | 30,000.00 EUR |
 | v6 | 2,500,000.00 EUR | 9,000.00 EUR | 35,000.00 EUR |

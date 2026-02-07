@@ -120,6 +120,7 @@ class Assumptions(BaseModel):
     credit_draw_factor: float = Field(ge=0, description="Multiplier applied to negative cashflow for credit draw.")
     debt_repay_factor: float = Field(ge=0, description="Multiplier applied to positive cashflow for debt repayment.")
     min_months_cash_reserve: float = Field(gt=0, description="Minimum months of cash reserves to maintain. Must be > 0.")
+    minimum_cash_balance: float = Field(ge=0, description="Minimum acceptable cash balance (optimizer constraint). Must be >= 0.")
     minimum_liquidity_ratio: float = Field(ge=0, le=1, description="Minimum liquidity ratio as (cash + product_value + revenue) / debt. Must be in [0, 1].")
 
     # Product Value Model - Accumulates with dev spend, decays without

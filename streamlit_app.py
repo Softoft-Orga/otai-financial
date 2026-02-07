@@ -8,7 +8,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from otai_forecast.config import SCENARIO_ASSUMPTIONS
+from otai_forecast.config import (
+    DEFAULT_DECISION,
+    OPTIMIZER_KNOT_HIGHS,
+    OPTIMIZER_KNOT_LOWS,
+    SCENARIO_ASSUMPTIONS,
+    build_base_decisions, OPTIMIZER_NUM_KNOTS,
+)
 from otai_forecast.decision_optimizer import (
     choose_best_decisions_by_market_cap,
     run_simulation_df,
@@ -121,6 +127,12 @@ def _format_currency(value: float) -> str:
     return f"€{int(value):,}"
 
 
+def _format_optional_currency(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return _format_currency(value)
+
+
 def _format_float(value: float) -> str:
     return f"{value:.2f}"
 
@@ -172,17 +184,41 @@ def _render_metrics(metrics: Iterable[MetricSpec], values: dict[str, float]) -> 
         st.metric(label, formatter(values[key]))
 
 
-DEFAULT_DECISION = MonthlyDecision(
-    ads_budget=1000.0,
-    seo_budget=1000.0,
-    dev_budget=1000.0,
-    partner_budget=1000.0,
-    outreach_budget=1000.0,
-)
+def _render_plotly(fig: object) -> None:
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"scrollZoom": False},
+    )
 
-OPTIMIZER_KNOT_LOWS = [0.1 * (i + 1) for i in range(9)]
-OPTIMIZER_KNOT_HIGHS = [8 * 2 ** (i + 2) for i in range(9)]
-OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE = 10
+
+def _build_scenario_summary(
+    scenarios: Iterable[ScenarioAssumptions],
+) -> pd.DataFrame:
+    rows: list[dict[str, str]] = []
+    for scenario in scenarios:
+        payload = load_optimization(
+            OPTIMIZATION_DIR,
+            assumptions_hash(scenario.assumptions),
+        )
+        end_market_cap = None
+        if isinstance(payload, dict):
+            summary = payload.get("summary")
+            if isinstance(summary, dict):
+                value = summary.get("end_market_cap")
+                if isinstance(value, (int, float)):
+                    end_market_cap = float(value)
+        rows.append(
+            {
+                "Scenario": scenario.name,
+                "Min liquidity ratio": _format_percent_2(
+                    scenario.assumptions.minimum_liquidity_ratio
+                ),
+                "End Market Cap": _format_optional_currency(end_market_cap),
+            }
+        )
+    return pd.DataFrame(rows)
+
 
 DECISION_TOP_METRICS: list[MetricSpec] = [
     ("Simulation Period (months)", "months", _format_int),
@@ -288,7 +324,11 @@ def main():
     scenarios = st.session_state.scenario_assumptions
     scenario_map = _scenario_map(scenarios)
     default_scenario = next(
-        (scenario for scenario in scenarios if scenario.name.lower() == "realistic"),
+        (
+            scenario
+            for scenario in scenarios
+            if scenario.name.lower() == "realistic (without investment)"
+        ),
         scenarios[0],
     )
     if "selected_scenario_name" not in st.session_state:
@@ -386,17 +426,13 @@ def main():
 
         if run_opt:
             with st.spinner("Running optimization..."):
-                base_decisions = [
-                    DEFAULT_DECISION.model_copy()
-                    for _ in range(a.months)
-                ]
+                base_decisions = build_base_decisions(a.months, DEFAULT_DECISION)
                 decisions, df = choose_best_decisions_by_market_cap(
                     a,
                     base_decisions,
-                    num_knots=9,
+                    num_knots=OPTIMIZER_NUM_KNOTS,
                     knot_lows=OPTIMIZER_KNOT_LOWS,
                     knot_highs=OPTIMIZER_KNOT_HIGHS,
-                    max_monthly_multiplier_change=OPTIMIZER_MAX_MONTHLY_MULTIPLIER_CHANGE,
                     max_evals=int(max_evals),
                 )
                 st.session_state.df = df
@@ -444,12 +480,12 @@ def main():
                     for i, d in enumerate(st.session_state.decisions)
                 ]
             )
-            st.dataframe(decisions_df, width='stretch')
+            st.dataframe(decisions_df, use_container_width=True)
 
             # Add Decision Attributes plot
             st.subheader("📊 Decision Attributes Visualization")
             fig = plot_decision_attributes(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         if "assumptions" in st.session_state:
             st.header("Assumptions")
@@ -461,10 +497,14 @@ def main():
                 ]
             )
             a_tbl["Value"] = a_tbl["Value"].astype(str)
-            st.dataframe(a_tbl, width='stretch')
+            st.dataframe(a_tbl, use_container_width=True)
 
         if "scenario_assumptions" in st.session_state:
             st.header("Scenario Assumptions")
+            scenario_summary = _build_scenario_summary(
+                st.session_state.scenario_assumptions
+            )
+            st.dataframe(scenario_summary, use_container_width=True, hide_index=True)
             for scenario in st.session_state.scenario_assumptions:
                 with st.expander(scenario.name):
                     scenario_dict = scenario.assumptions.model_dump()
@@ -478,7 +518,7 @@ def main():
                         ]
                     )
                     scenario_tbl["Value"] = scenario_tbl["Value"].astype(str)
-                    st.dataframe(scenario_tbl, width='stretch')
+                    st.dataframe(scenario_tbl, use_container_width=True)
 
         # KPIs
         st.header("📊 Key Performance Indicators")
@@ -539,33 +579,33 @@ def main():
 
         with col1:
             fig = plot_cash_burn_rate(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         with col2:
             fig = plot_net_cashflow(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         # User Growth and Product Value
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_user_growth_stacked(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         with col2:
             fig = plot_product_value(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         # Market Cap and Debt
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_debt_interest_cash(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         with col2:
             fig = plot_market_cap(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         # Enhanced Analytics
         st.header("🎯 Enhanced Analytics")
@@ -575,22 +615,22 @@ def main():
 
         with col1:
             fig = plot_ltv_cac_analysis(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         with col2:
             fig = plot_unit_economics(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         # Second row of enhanced plots
         col1, col2 = st.columns(2)
 
         with col1:
             fig = plot_conversion_funnel(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         with col2:
             fig = plot_financial_health_score(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         # New Enhanced Plots
         st.header("📊 Enhanced Financial Visualizations")
@@ -600,20 +640,20 @@ def main():
 
         with col1:
             fig = plot_cash_debt_spend(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         with col2:
             fig = plot_costs_breakdown(df)
-            st.plotly_chart(fig, width='stretch')
+            _render_plotly(fig)
 
         # Second row - Revenue Split (full width)
         fig = plot_revenue_split(df)
-        st.plotly_chart(fig, width='stretch')
+        _render_plotly(fig)
 
         # Enhanced Dashboard (full width)
         st.subheader("Complete Enhanced Dashboard")
         fig = plot_enhanced_dashboard(df)
-        st.plotly_chart(fig, width='stretch')
+        _render_plotly(fig)
 
         # Tables
         st.header("📋 Detailed Tables")
@@ -636,11 +676,11 @@ def main():
                     "net_cashflow",
                 ]
             ].round(2),
-            width='stretch',
+            use_container_width=True,
         )
 
         st.subheader("Monthly Full (all columns)")
-        st.dataframe(df.round(2), width='stretch')
+        st.dataframe(df.round(2), use_container_width=True)
 
         # Export button
         st.header("💾 Export Results")

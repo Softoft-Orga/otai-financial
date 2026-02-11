@@ -139,3 +139,5 @@ Thumbs.db
 !pyproject.toml
 !pytest.ini
 !/2026-02-02T12-24_export.csv
+desktop.ini
+*.gdoc

@@ -14,8 +14,8 @@ def add_market_cap_columns(df: pd.DataFrame, a: Assumptions) -> pd.DataFrame:
     df = df.copy()
     df["revenue_ttm"] = df["revenue_total"].rolling(window=12, min_periods=1).sum()
     
-    # Calculate revenue growth rate (3-month average for stability)
-    revenue_growth = df["revenue_total"].pct_change().rolling(window=3, min_periods=1).mean()
+    # Calculate revenue growth rate (6-month average for stability)
+    revenue_growth = df["revenue_total"].pct_change().rolling(window=6, min_periods=1).mean()
     
     # Growth multiplier: higher growth increases the market cap multiple
     growth_multiplier = 1 + 2 * revenue_growth.clip(lower=-0.5, upper=1)  # Between 0.5x and 3x
@@ -31,11 +31,10 @@ def add_market_cap_columns(df: pd.DataFrame, a: Assumptions) -> pd.DataFrame:
     enterprise_value = df["revenue_ttm"] * dynamic_multiple
     
     # Net cash position: cash minus 2x debt (debt is more punitive)
-    net_cash = df["cash"] - 2 * df["debt"]
+    net_cash = 0.1 * df["cash"] - 0.5 *df["debt"]
     
     # Final market cap: enterprise value plus net cash
     df["market_cap"] = enterprise_value + net_cash
-    
     return df
 
 
@@ -193,6 +192,7 @@ def choose_best_decisions_by_market_cap(
         knot_high: float = 5.0,
         knot_lows: list[float] | None = None,
         knot_highs: list[float] | None = None,
+        knot_config: dict[str, dict[str, list[float]]] | None = None,
 ) -> tuple[list[MonthlyDecision], pd.DataFrame]:
     """
     Optimize decisions using Optuna with TPE sampler.
@@ -210,28 +210,27 @@ def choose_best_decisions_by_market_cap(
         knot_high: Upper bound for knot values
         knot_lows: Optional per-knot lower bounds (length == num_knots)
         knot_highs: Optional per-knot upper bounds (length == num_knots)
-        max_knot_delta: Optional max allowed change between adjacent knots
-        max_monthly_multiplier_change: Optional max allowed change between monthly multipliers
+        knot_config: Optional per-decision knot bounds. Dict mapping decision
+            name ("ads", "seo", "dev", "partner", "outreach") to
+            {"lows": [...], "highs": [...]}. Overrides knot_lows/knot_highs.
         
     Returns:
         Tuple of (best_decisions, best_dataframe)
     """
     if num_knots < 2:
         raise ValueError("num_knots must be at least 2.")
-    if knot_low >= knot_high:
-        raise ValueError("knot_low must be less than knot_high.")
-    if (knot_lows is None) ^ (knot_highs is None):
-        raise ValueError("knot_lows and knot_highs must be provided together.")
-    if knot_lows is not None and knot_highs is not None:
-        if len(knot_lows) != num_knots or len(knot_highs) != num_knots:
-            raise ValueError("knot_lows and knot_highs must match num_knots length.")
+    if knot_config is None:
+        if knot_low >= knot_high:
+            raise ValueError("knot_low must be less than knot_high.")
+        if (knot_lows is None) ^ (knot_highs is None):
+            raise ValueError("knot_lows and knot_highs must be provided together.")
+        if knot_lows is not None and knot_highs is not None:
+            if len(knot_lows) != num_knots or len(knot_highs) != num_knots:
+                raise ValueError("knot_lows and knot_highs must match num_knots length.")
 
     # Create study with TPE sampler and pruner
     sampler = optuna.samplers.TPESampler(seed=seed)
-    pruner = optuna.pruners.MedianPruner(
-        n_startup_trials=10,  # Don't prune first 10 trials
-        n_warmup_steps=2,  # Don't prune first 3 months
-    )
+
     if study_name is None:
         import random
         random_id = random.randint(0, 10 ** 9 - 1)
@@ -240,11 +239,20 @@ def choose_best_decisions_by_market_cap(
     study = optuna.create_study(
         study_name=study_name,
         sampler=sampler,
-        direction="maximize",
-        pruner=pruner,
+        direction="maximize"
     )
 
     def _suggest_knots(trial: optuna.Trial, prefix: str) -> list[float]:
+        if knot_config is not None and prefix in knot_config:
+            cfg = knot_config[prefix]
+            return [
+                trial.suggest_float(
+                    f"{prefix}_knot_{i}",
+                    cfg["lows"][i],
+                    cfg["highs"][i],
+                )
+                for i in range(num_knots)
+            ]
         if knot_lows is not None and knot_highs is not None:
             return [
                 trial.suggest_float(
@@ -288,14 +296,10 @@ def choose_best_decisions_by_market_cap(
             # Report market cap at each month
             trial.report(float(df["market_cap"].iloc[month_idx]), step=month_idx)
 
-            # Check if trial should be pruned (after warmup steps)
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
-
         # Check if cash went too small (constraint violation)
         if df["cash"].min() < a.minimum_cash_balance:
             # Return a small value for constraint violations
-            raise optuna.exceptions.TrialPruned()
+            return df["cash"].min() - a.minimum_cash_balance
 
         # Check liquidity constraint using liquid assets proxy:
         # cash + product_value + one-month average revenue (TTM/12) / debt
@@ -319,7 +323,7 @@ def choose_best_decisions_by_market_cap(
         return final_market_cap
 
     # Optimize
-    study.optimize(objective, n_trials=max_evals, n_jobs=8)
+    study.optimize(objective, n_trials=max_evals, n_jobs=14)
 
     # Get best trial
     best_trial = study.best_trial

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
 from io import BytesIO
 from typing import Any
 
 import pandas as pd
+import plotly.graph_objects as go
 import plotly.io as pio
-from openpyxl import load_workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -339,14 +340,18 @@ def _write_excel_report(
         plot_images["Costs_Breakdown"] = plot_costs_breakdown(df)
         plot_images["Revenue_Split"] = plot_revenue_split(df)
 
-        image_bytes = {}
-        for name, plot in plot_images.items():
-            if plot is None:
-                continue
+        def _render(name_fig: tuple[str, go.Figure]) -> tuple[str, BytesIO]:
+            name, fig = name_fig
             buf = BytesIO()
-            buf.write(pio.to_image(plot, format="png", scale=2))
+            buf.write(pio.to_image(fig, format="png", scale=2))
             buf.seek(0)
-            image_bytes[name] = buf
+            return name, buf
+
+        items = [(n, f) for n, f in plot_images.items() if f is not None]
+        image_bytes = {}
+        with ThreadPoolExecutor() as pool:
+            for result in pool.map(_render, items):
+                image_bytes[result[0]] = result[1]
         return image_bytes
 
     sheet_order = [
@@ -362,13 +367,13 @@ def _write_excel_report(
         "Monthly_Full",
     ]
 
-    with pd.ExcelWriter(out_path, engine="openpyxl") as w:
-        for sheet_name in sheet_order:
-            df_sheet = tables.get(sheet_name)
-            if df_sheet is not None:
-                df_sheet.to_excel(w, index=False, sheet_name=sheet_name)
+    w = pd.ExcelWriter(out_path, engine="openpyxl")
+    for sheet_name in sheet_order:
+        df_sheet = tables.get(sheet_name)
+        if df_sheet is not None:
+            df_sheet.to_excel(w, index=False, sheet_name=sheet_name)
 
-    wb = load_workbook(out_path)
+    wb = w.book
 
     # Define styles
     header_fill = PatternFill("solid", fgColor="1F2937")
@@ -495,12 +500,9 @@ def _write_excel_report(
                     for r in range(2, ws.max_row + 1):
                         ws.cell(row=r, column=idx).number_format = '#,##0.00" €"'
 
-    wb.save(out_path)
-
     if plot_scenarios is None and df_for_plots is None:
+        w.close()
         return out_path
-
-    wb_plots = load_workbook(out_path)
 
     def add_plot_sheets(
         *,
@@ -514,8 +516,8 @@ def _write_excel_report(
             f"Plots_Dashboards{sheet_suffix}",
         ]
         for sheet_name in sheet_names:
-            if sheet_name in wb_plots.sheetnames:
-                wb_plots.remove(wb_plots[sheet_name])
+            if sheet_name in wb.sheetnames:
+                wb.remove(wb[sheet_name])
 
         base_title = "Basic Visualization Plots"
         title = (
@@ -523,7 +525,7 @@ def _write_excel_report(
             if scenario_label
             else base_title
         )
-        ws_plots_basic = wb_plots.create_sheet(f"Plots_Basic{sheet_suffix}")
+        ws_plots_basic = wb.create_sheet(f"Plots_Basic{sheet_suffix}")
         ws_plots_basic["A1"] = title
         ws_plots_basic["A1"].font = title_font
         ws_plots_basic["A1"].alignment = Alignment(horizontal="center")
@@ -560,7 +562,7 @@ def _write_excel_report(
             if scenario_label
             else base_title
         )
-        ws_plots_enhanced = wb_plots.create_sheet(f"Plots_Enhanced{sheet_suffix}")
+        ws_plots_enhanced = wb.create_sheet(f"Plots_Enhanced{sheet_suffix}")
         ws_plots_enhanced["A1"] = title
         ws_plots_enhanced["A1"].font = title_font
         ws_plots_enhanced["A1"].alignment = Alignment(horizontal="center")
@@ -598,7 +600,7 @@ def _write_excel_report(
             if scenario_label
             else base_title
         )
-        ws_plots_dash = wb_plots.create_sheet(f"Plots_Dashboards{sheet_suffix}")
+        ws_plots_dash = wb.create_sheet(f"Plots_Dashboards{sheet_suffix}")
         ws_plots_dash["A1"] = title
         ws_plots_dash["A1"].font = title_font
         ws_plots_dash["A1"].alignment = Alignment(horizontal="center")
@@ -629,13 +631,14 @@ def _write_excel_report(
                 ws_plots_dash[title_cell].alignment = Alignment(horizontal="center")
 
         for ws_name in sheet_names:
-            ws = wb_plots[ws_name]
+            ws = wb[ws_name]
             for col in ["A", "B", "C", "D", "E", "F", "G", "H"]:
                 ws.column_dimensions[col].width = 15
 
     if plot_scenarios is None:
         plot_scenarios = [("", df_for_plots)] if df_for_plots is not None else []
 
+    all_bufs: list[BytesIO] = []
     for i, (scenario_label, df) in enumerate(plot_scenarios):
         if df is None:
             continue
@@ -646,10 +649,11 @@ def _write_excel_report(
             scenario_label=scenario_label or None,
             sheet_suffix=sheet_suffix,
         )
-        for buf in image_bytes.values():
-            buf.close()
+        all_bufs.extend(image_bytes.values())
 
-    wb_plots.save(out_path)
+    w.close()
+    for buf in all_bufs:
+        buf.close()
     return out_path
 
 
@@ -717,3 +721,223 @@ def export_scenarios(
         out_path=out_path,
         plot_scenarios=[(scenario["name"], scenario["df"]) for scenario in scenario_results],
     )
+
+
+def _month_labels(n: int, start_year: int = 2026, start_month: int = 2) -> list[str]:
+    import calendar
+
+    return [
+        f"{calendar.month_abbr[(start_month + i - 1) % 12 + 1]} {start_year + (start_month + i - 1) // 12}"
+        for i in range(n)
+    ]
+
+
+def export_simple_budget(
+    df: pd.DataFrame,
+    assumptions: Any,
+    out_path: str = "OTAI_Simple_Budget.xlsx",
+) -> str:
+    """Export a simplified Excel: Overview (with plots), Detailed Monthly Plan, Assumptions."""
+    from .plots import (
+        plot_cash_position,
+        plot_market_cap,
+        plot_net_cashflow,
+        plot_product_value,
+        plot_results,
+        plot_revenue_cashflow,
+        plot_ttm_revenue,
+    )
+
+    n = len(df)
+    labels = _month_labels(n)
+    r = lambda col: df[col].round(0).values  # noqa: E731
+    r1 = lambda col: df[col].round(1).values  # noqa: E731
+
+    # --- Sheet 1: Overview (KPIs + simple summary table) ---
+    kpis = _kpis_df(df)
+
+    summary = pd.DataFrame(
+        {
+            "Month": labels,
+            "Cash (€)": r("cash"),
+            "Debt (€)": r("debt"),
+            "Revenue (€)": r("revenue_total"),
+            "Net Cashflow (€)": r("net_cashflow"),
+        }
+    )
+
+    # --- Sheet 2: Detailed Monthly Plan ---
+    plan = pd.DataFrame(
+        {
+            "Month": labels,
+            # Revenue breakdown
+            "Rev Pro (€)": r("revenue_pro"),
+            "Rev Ent (€)": r("revenue_ent"),
+            "Rev Support (€)": r("support_subscription_revenue_total"),
+            "Rev Renewals (€)": (df["revenue_renewal_pro"] + df["revenue_renewal_ent"]).round(0).values,
+            "Rev Total (€)": r("revenue_total"),
+            "TTM Revenue (€)": r("revenue_ttm"),
+            # Cost breakdown
+            "Ads (€)": r("ads_spend"),
+            "SEO (€)": r("organic_marketing_spend"),
+            "Dev (€)": r("dev_spend"),
+            "Operating (€)": r("operating_expenses"),
+            "Outreach (€)": r("direct_candidate_outreach_spend"),
+            "Sales (€)": r("sales_spend"),
+            "Support (€)": r("support_spend"),
+            "Total Costs (€)": r("costs_ex_tax"),
+            # Financials
+            "Profit BT (€)": r("profit_bt"),
+            "Tax (€)": r("tax"),
+            "Net Cashflow (€)": r("net_cashflow"),
+            "Cash (€)": r("cash"),
+            "Debt (€)": r("debt"),
+            "Interest (€)": r("interest_payment"),
+            "Market Cap (€)": r("market_cap"),
+            "Product Value": r("product_value"),
+            # Users
+            "Free Users": r1("free_active"),
+            "Pro Users": r1("pro_active"),
+            "Ent Users": r1("ent_active"),
+            "New Free": r1("new_free"),
+            "New Pro": r1("new_pro"),
+            "New Ent": r1("new_ent"),
+            # Leads & growth
+            "Website Leads": r1("website_leads"),
+            "Direct Leads": r1("new_direct_leads"),
+            "Domain Rating": r1("domain_rating"),
+            "Partners": r1("partners_active"),
+        }
+    )
+
+    # Money columns in plan (columns B through V = indices 2–22)
+    plan_money_cols = list(range(2, 23))
+    # Count columns (W onward = indices 23–32)
+    plan_count_cols = list(range(23, 33))
+
+    # --- Sheet 3: Assumptions ---
+    assumptions_table = _assumptions_df(assumptions)
+
+    # --- Write sheets ---
+    w = pd.ExcelWriter(out_path, engine="openpyxl")
+    kpis.to_excel(w, index=False, sheet_name="Overview")
+    plan.to_excel(w, index=False, sheet_name="Detailed Monthly Plan")
+    if assumptions_table is not None:
+        assumptions_table.to_excel(w, index=False, sheet_name="Assumptions")
+
+    # --- Styling ---
+    wb = w.book
+    header_fill = PatternFill("solid", fgColor="4A1A6B")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    title_font = Font(size=16, bold=True, color="4A1A6B")
+    section_font = Font(size=14, bold=True, color="4A1A6B")
+
+    for ws in wb.worksheets:
+        for i, col in enumerate(
+            ws.iter_cols(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column),
+            start=1,
+        ):
+            max_len = max((len(str(c.value or "")) for c in col), default=10)
+            ws.column_dimensions[get_column_letter(i)].width = min(42, max(12, max_len + 2))
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_align
+        ws.freeze_panes = "A2"
+
+    # --- Detailed Monthly Plan formatting ---
+    ws_plan = wb["Detailed Monthly Plan"]
+    for col_idx in plan_money_cols:
+        for row_idx in range(2, ws_plan.max_row + 1):
+            ws_plan.cell(row=row_idx, column=col_idx).number_format = '#,##0" €"'
+    for col_idx in plan_count_cols:
+        for row_idx in range(2, ws_plan.max_row + 1):
+            ws_plan.cell(row=row_idx, column=col_idx).number_format = '#,##0.0'
+
+    # Plan title row
+    ws_plan.insert_rows(1)
+    ws_plan.merge_cells(f"A1:{get_column_letter(ws_plan.max_column)}1")
+    ws_plan["A1"] = "Detailed Monthly Plan — Feb 2026 to Jan 2028"
+    ws_plan["A1"].font = title_font
+    ws_plan["A1"].alignment = Alignment(horizontal="center")
+    ws_plan.row_dimensions[1].height = 40
+
+    # --- Overview sheet ---
+    ws_ov = wb["Overview"]
+
+    # Title row
+    ws_ov.insert_rows(1)
+    ws_ov.merge_cells("A1:B1")
+    ws_ov["A1"] = "OTAI Conservative Budget Plan (24 Months)"
+    ws_ov["A1"].font = title_font
+    ws_ov["A1"].alignment = Alignment(horizontal="center")
+    ws_ov.row_dimensions[1].height = 40
+
+    # Simple summary table below KPIs
+    sum_start = ws_ov.max_row + 3
+    ws_ov.merge_cells(f"A{sum_start}:E{sum_start}")
+    ws_ov[f"A{sum_start}"] = "Monthly Summary"
+    ws_ov[f"A{sum_start}"].font = section_font
+    ws_ov[f"A{sum_start}"].alignment = Alignment(horizontal="center")
+
+    hdr_row = sum_start + 1
+    for ci, hdr in enumerate(summary.columns, start=1):
+        cell = ws_ov.cell(row=hdr_row, column=ci, value=hdr)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_align
+    for ri, row_data in enumerate(summary.itertuples(index=False), start=hdr_row + 1):
+        for ci, val in enumerate(row_data, start=1):
+            cell = ws_ov.cell(row=ri, column=ci, value=val)
+            if ci >= 2:
+                cell.number_format = '#,##0" €"'
+
+    # --- Plots on Overview page ---
+    plot_fns = {
+        "Simulation Overview": lambda: plot_results(df, save_path=None),
+        "Revenue & Cashflow": lambda: plot_revenue_cashflow(df),
+        "Cash Position": lambda: plot_cash_position(df),
+        "Net Cashflow": lambda: plot_net_cashflow(df),
+        "Product Value": lambda: plot_product_value(df),
+        "TTM Revenue": lambda: plot_ttm_revenue(df),
+        "Market Cap": lambda: plot_market_cap(df),
+    }
+
+    # Generate all figures first, then render to PNG in parallel
+    plot_items = []
+    for plot_title, plot_fn in plot_fns.items():
+        fig = plot_fn()
+        if fig is not None:
+            plot_items.append((plot_title, fig))
+
+    def _render_budget(title_fig: tuple[str, go.Figure]) -> tuple[str, BytesIO]:
+        title, fig = title_fig
+        buf = BytesIO()
+        buf.write(pio.to_image(fig, format="png", width=1400, height=800, scale=2))
+        buf.seek(0)
+        return title, buf
+
+    rendered_plots: list[tuple[str, BytesIO]] = []
+    with ThreadPoolExecutor() as pool:
+        rendered_plots = list(pool.map(_render_budget, plot_items))
+
+    current_row = ws_ov.max_row + 3
+    ws_ov.merge_cells(f"A{current_row}:L{current_row}")
+    ws_ov[f"A{current_row}"] = "Key Charts"
+    ws_ov[f"A{current_row}"].font = section_font
+    ws_ov[f"A{current_row}"].alignment = Alignment(horizontal="center")
+    current_row += 2
+
+    for plot_title, buf in rendered_plots:
+        ws_ov.cell(row=current_row, column=1, value=plot_title).font = Font(
+            size=13, bold=True, color="4A1A6B",
+        )
+        img = Image(buf)
+        img.width = 900
+        img.height = 500
+        ws_ov.add_image(img, f"A{current_row + 1}")
+        current_row += 28
+
+    w.close()
+    return out_path

@@ -1,4 +1,4 @@
-saved_at: '2026-02-07T08:30:17.239539'
+saved_at: '2026-02-14T11:07:21.334209'
 assumption_hash: 6122124c4e730bd51142aa42c8eb6fbe6c24c03cbf7020cc02e862c100a3dee2
 assumptions:
   months: 24
@@ -109,9 +109,9 @@ assumption_scenarios:
     direct_demo_appointment_conversion_to_ent: 0.04000000000000001
     conv_free_to_pro: 0.008
     conv_pro_to_ent: 0.004
-    churn_free: 0.06999999999999999
+    churn_free: 0.06
     churn_pro: 0.06
-    churn_ent: 0.05
+    churn_ent: 0.06
     pricing_milestones:
     - product_value_min: 0.0
       pro_price: 2500.0
@@ -158,11 +158,11 @@ assumption_scenarios:
     scraping_ref_spend: 1000.0
     cost_per_direct_lead: 10.0
     cost_per_direct_demo: 200.0
-    debt_interest_rate_base_annual: 0.08
+    debt_interest_rate_base_annual: 0.16
     debt_interest_rate_sensitivity_factor: 0.5
     credit_draw_factor: 1.25
     debt_repay_factor: 0.25
-    min_months_cash_reserve: 3.0
+    min_months_cash_reserve: 6.0
     minimum_cash_balance: 5000.0
     minimum_liquidity_ratio: 0.25
     pv_init: 80000.0
@@ -195,9 +195,9 @@ assumption_scenarios:
     direct_demo_appointment_conversion_to_ent: 0.04000000000000001
     conv_free_to_pro: 0.008
     conv_pro_to_ent: 0.004
-    churn_free: 0.06999999999999999
+    churn_free: 0.06
     churn_pro: 0.06
-    churn_ent: 0.05
+    churn_ent: 0.06
     pricing_milestones:
     - product_value_min: 0.0
       pro_price: 2500.0
@@ -244,11 +244,11 @@ assumption_scenarios:
     scraping_ref_spend: 1000.0
     cost_per_direct_lead: 10.0
     cost_per_direct_demo: 200.0
-    debt_interest_rate_base_annual: 0.08
+    debt_interest_rate_base_annual: 0.16
     debt_interest_rate_sensitivity_factor: 0.5
     credit_draw_factor: 1.25
     debt_repay_factor: 0.25
-    min_months_cash_reserve: 3.0
+    min_months_cash_reserve: 6.0
     minimum_cash_balance: 5000.0
     minimum_liquidity_ratio: 0.25
     pv_init: 80000.0
@@ -603,127 +603,127 @@ assumption_scenarios:
     payment_processing_rate: 0.02
     dev_capex_ratio: 0.3
 decisions:
-- ads_budget: 643.8428783861667
-  seo_budget: 17435.606119974727
-  dev_budget: 21870.199664761345
-  outreach_budget: 25048.004724541344
-  partner_budget: 329.2677511513524
-- ads_budget: 22638.987583459424
-  seo_budget: 28465.404363232134
-  dev_budget: 24717.68671943828
-  outreach_budget: 29253.719108227062
-  partner_budget: 319.1628729781367
-- ads_budget: 44634.13228853268
-  seo_budget: 39495.20260648954
-  dev_budget: 27565.173774115217
-  outreach_budget: 33459.43349191278
-  partner_budget: 309.05799480492095
-- ads_budget: 64447.421493885035
-  seo_budget: 49614.58029532383
-  dev_budget: 31925.99581807206
-  outreach_budget: 37585.45061166236
-  partner_budget: 5792.426041260798
-- ads_budget: 68987.72220119093
-  seo_budget: 53361.014103196314
-  dev_budget: 46880.16278698823
-  outreach_budget: 41153.58688385896
-  partner_budget: 49730.10456012032
-- ads_budget: 73528.02290849685
-  seo_budget: 57107.44791106879
-  dev_budget: 61834.32975590441
-  outreach_budget: 44721.72315605555
-  partner_budget: 93667.78307897985
-- ads_budget: 70301.40389980632
-  seo_budget: 76941.27506706194
-  dev_budget: 87850.29925822117
-  outreach_budget: 65389.167637974795
-  partner_budget: 115889.55565138569
-- ads_budget: 43774.02574312645
-  seo_budget: 145037.2822674171
-  dev_budget: 147051.6763607397
-  outreach_budget: 137354.53674906192
-  partner_budget: 72963.61038443046
-- ads_budget: 17246.647586446565
-  seo_budget: 213133.28946777224
-  dev_budget: 206253.05346325826
-  outreach_budget: 209319.90586014907
-  partner_budget: 30037.665117475215
-- ads_budget: 37385.592294511625
-  seo_budget: 268688.0248692095
-  dev_budget: 219781.51577137902
-  outreach_budget: 269419.6433316787
-  partner_budget: 22440.5001912816
-- ads_budget: 135301.7417771516
-  seo_budget: 303340.64060578373
-  dev_budget: 157188.45342217013
-  outreach_budget: 309743.3280706125
-  partner_budget: 73724.63583302403
-- ads_budget: 233217.89125979153
-  seo_budget: 337993.2563423579
-  dev_budget: 94595.39107296124
-  outreach_budget: 350067.01280954626
-  partner_budget: 125008.77147476649
-- ads_budget: 398296.99071694916
-  seo_budget: 362562.566734633
-  dev_budget: 163416.99275942968
-  outreach_budget: 443428.2619540877
-  partner_budget: 300512.37235896254
-- ads_budget: 630539.0401486245
-  seo_budget: 377048.5717826089
-  dev_budget: 363653.2584815755
-  outreach_budget: 589827.0755042367
-  partner_budget: 600235.4384856122
-- ads_budget: 862781.0895802998
-  seo_budget: 391534.5768305849
-  dev_budget: 563889.5242037213
-  outreach_budget: 736225.8890543858
-  partner_budget: 899958.5046122618
-- ads_budget: 1184291.7106858958
-  seo_budget: 755456.750106197
-  dev_budget: 795966.1734334548
-  outreach_budget: 1036321.3939076107
-  partner_budget: 1089048.1390524951
-- ads_budget: 1559363.4747958444
-  seo_budget: 1329040.6243183906
-  dev_budget: 1047147.0527677409
-  outreach_budget: 1428634.913542681
-  partner_budget: 1211757.7144808786
-- ads_budget: 1934435.2389057933
-  seo_budget: 1902624.4985305844
-  dev_budget: 1298327.932102027
-  outreach_budget: 1820948.4331777513
-  partner_budget: 1334467.289909262
-- ads_budget: 1518053.6347205462
-  seo_budget: 1952399.931747652
-  dev_budget: 1071635.6817378183
-  outreach_budget: 1558817.1535274757
-  partner_budget: 1013241.5419399833
-- ads_budget: 837854.2411035671
-  seo_budget: 1827572.5512996777
-  dev_budget: 685652.3881407776
-  outreach_budget: 1078537.6074487523
-  partner_budget: 544037.3528381502
-- ads_budget: 157654.84748658788
-  seo_budget: 1702745.1708517035
-  dev_budget: 299669.09454373695
-  outreach_budget: 598258.0613700284
-  partner_budget: 74833.16373631715
-- ads_budget: 2317154.47837027
-  seo_budget: 1221971.3399563753
-  dev_budget: 2663220.799021326
-  outreach_budget: 2759321.2475211136
-  partner_budget: 2359647.958922461
-- ads_budget: 4882325.398468332
-  seo_budget: 690348.0161399966
-  dev_budget: 5419563.217509576
-  outreach_budget: 5297719.109705029
-  partner_budget: 5037894.037578316
-- ads_budget: 7447496.318566395
-  seo_budget: 158724.6923236179
-  dev_budget: 8175905.635997828
-  outreach_budget: 7836116.971888944
-  partner_budget: 7716140.116234172
+- ads_budget: 21481.574660496142
+  seo_budget: 345.29137846340893
+  dev_budget: 11899.076594898068
+  outreach_budget: 10759.230173415785
+  partner_budget: 4573.9909228104325
+- ads_budget: 27027.201017249557
+  seo_budget: 3088.8741430094246
+  dev_budget: 14627.053991373255
+  outreach_budget: 24645.527649547745
+  partner_budget: 18537.264857676513
+- ads_budget: 32572.82737400297
+  seo_budget: 5832.456907555439
+  dev_budget: 17355.031387848445
+  outreach_budget: 38531.82512567971
+  partner_budget: 32500.538792542593
+- ads_budget: 41034.23148178944
+  seo_budget: 11439.243461726413
+  dev_budget: 21342.41842779219
+  outreach_budget: 53882.36829331754
+  partner_budget: 44150.63184696249
+- ads_budget: 69906.07984680722
+  seo_budget: 37088.456543272085
+  dev_budget: 34145.672972015826
+  outreach_budget: 79482.63130149635
+  partner_budget: 39608.45873825915
+- ads_budget: 98777.92821182498
+  seo_budget: 62737.66962481777
+  dev_budget: 46948.92751623946
+  outreach_budget: 105082.89430967519
+  partner_budget: 35066.28562955581
+- ads_budget: 131270.18143322357
+  seo_budget: 95761.60671128737
+  dev_budget: 66923.71328432877
+  outreach_budget: 132596.00886044448
+  partner_budget: 37412.221109282495
+- ads_budget: 174623.64922376463
+  seo_budget: 150909.71581252877
+  dev_budget: 108413.0927240151
+  outreach_budget: 165847.67803898512
+  partner_budget: 60422.48235429923
+- ads_budget: 217977.1170143057
+  seo_budget: 206057.82491377016
+  dev_budget: 149902.47216370143
+  outreach_budget: 199099.34721752573
+  partner_budget: 83432.74359931599
+- ads_budget: 269748.93634803954
+  seo_budget: 222156.74485531385
+  dev_budget: 158320.02680556668
+  outreach_budget: 225542.35971520518
+  partner_budget: 87504.41766245676
+- ads_budget: 335551.3415870946
+  seo_budget: 173173.68286402806
+  dev_budget: 111617.87345106344
+  outreach_budget: 240637.61107811588
+  partner_budget: 60011.77975580424
+- ads_budget: 401353.7468261497
+  seo_budget: 124190.62087274225
+  dev_budget: 64915.72009656018
+  outreach_budget: 255732.86244102658
+  partner_budget: 32519.141849151707
+- ads_budget: 518604.7692729775
+  seo_budget: 234749.12477168426
+  dev_budget: 163866.50472663506
+  outreach_budget: 297851.06455762207
+  partner_budget: 68956.29089377618
+- ads_budget: 687304.4089275778
+  seo_budget: 504849.1945608541
+  dev_budget: 408470.2273412881
+  outreach_budget: 366992.2174279024
+  partner_budget: 169323.22688967764
+- ads_budget: 856004.0485821782
+  seo_budget: 774949.2643500242
+  dev_budget: 653073.9499559411
+  outreach_budget: 436133.3702981827
+  partner_budget: 269690.1628855791
+- ads_budget: 1009040.531573023
+  seo_budget: 845327.262352131
+  dev_budget: 866505.6533490254
+  outreach_budget: 408763.2646230257
+  partner_budget: 495367.27937119326
+- ads_budget: 1152679.1205656142
+  seo_budget: 795872.0172820003
+  dev_budget: 1061234.1452091685
+  outreach_budget: 323486.4038206065
+  partner_budget: 796230.5041506349
+- ads_budget: 1296317.7095582057
+  seo_budget: 746416.7722118694
+  dev_budget: 1255962.6370693112
+  outreach_budget: 238209.54301818722
+  partner_budget: 1097093.7289300764
+- ads_budget: 1924709.4224537057
+  seo_budget: 577856.0474814802
+  dev_budget: 1846751.24198444
+  outreach_budget: 582745.6209365103
+  partner_budget: 1219869.9061566573
+- ads_budget: 2714685.5099835084
+  seo_budget: 369593.4961976715
+  dev_budget: 2569559.8845845633
+  outreach_budget: 1070552.678428414
+  partner_budget: 1283283.734198951
+- ads_budget: 3504661.597513312
+  seo_budget: 161330.94491386294
+  dev_budget: 3292368.527184687
+  outreach_budget: 1558359.7359203177
+  partner_budget: 1346697.5622412444
+- ads_budget: 4940010.178361775
+  seo_budget: 100100.70047289286
+  dev_budget: 3163084.9094239753
+  outreach_budget: 1206146.2935965417
+  partner_budget: 1776755.3547290312
+- ads_budget: 6467554.829684336
+  seo_budget: 59875.071295185364
+  dev_budget: 2912073.8258974296
+  outreach_budget: 733929.9227276685
+  partner_budget: 2259190.856423317
+- ads_budget: 7995099.481006893
+  seo_budget: 19649.44211747789
+  dev_budget: 2661062.742370884
+  outreach_budget: 261713.55185879537
+  partner_budget: 2741626.3581176028
 summary:
-  end_market_cap: 273183748.86700237
-  end_cash: 11837446.256282665
-  min_cash: 64563.49110483477
+  end_market_cap: 295409082.5752821
+  end_cash: 5771513.386079578
+  min_cash: 24253.26605237164

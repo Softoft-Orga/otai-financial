@@ -16,7 +16,9 @@ def clamp(x: float, lo: float, hi: float) -> float:
 
 
 def _update_product_value(state: State, a: Assumptions, d: MonthlyDecision) -> float:
-    pv_next = state.product_value * (1.0 - a.product_value_depreciation_rate) + d.dev_budget
+    pv_after_depreciation = state.product_value * (1.0 - a.product_value_depreciation_rate)
+    effective_dev = pv_after_depreciation * math.log1p(d.dev_budget / pv_after_depreciation) if pv_after_depreciation > 0 else d.dev_budget
+    pv_next = pv_after_depreciation + effective_dev
     return max(a.pv_min, pv_next)
 
 
@@ -46,26 +48,22 @@ def _effective_cpc(ads_spend: float, a: Assumptions) -> float:
 def _effective_interest_rate_annual(
         debt: float, annual_revenue_ttm: float, new_credit_draw: float, a: Assumptions
 ) -> float:
-    if debt <= 0 and new_credit_draw <= 0:
+    """Interest rate scales between base and max based on debt-to-revenue ratio.
+
+    - No debt → 0%
+    - Low debt vs revenue → near base rate
+    - Debt = revenue → midpoint between base and max
+    - Debt >> revenue → approaches max rate
+    - No revenue → max rate
+    """
+    total_debt = debt + new_credit_draw
+    if total_debt <= 0:
         return 0.0
     if annual_revenue_ttm <= 0:
-        return a.debt_interest_rate_base_annual
-
-    debt_base = debt + new_credit_draw
-
-    # Use logarithmic scaling to prevent interest rate from going extremely low
-    # The debt_to_revenue_ratio is the primary driver, but we use log1p to create diminishing returns
-    debt_to_revenue_ratio = debt_base / annual_revenue_ttm
-
-    # Apply logarithmic scaling with sensitivity factor
-    # Higher sensitivity_factor makes the rate decrease slower with revenue
-    log_factor = math.log1p(debt_to_revenue_ratio) / math.log1p(1.0)
-
-    # Calculate effective rate with minimum floor to prevent extremely low rates
-    effective_rate = a.debt_interest_rate_base_annual * (1.0 + a.debt_interest_rate_sensitivity_factor * log_factor)
-
-    # Ensure minimum rate of 1% (0.01) to prevent unrealistically low interest rates
-    return max(effective_rate, 0.01)
+        return a.debt_interest_rate_max_annual
+    # Simple ratio: debt / (debt + revenue) moves smoothly from 0 to 1
+    risk_ratio = total_debt / (total_debt + annual_revenue_ttm)
+    return a.debt_interest_rate_annual + (a.debt_interest_rate_max_annual - a.debt_interest_rate_annual) * risk_ratio
 
 
 def _update_domain_rating(state: State, a: Assumptions, d: MonthlyDecision) -> float:
@@ -102,11 +100,17 @@ def calculate_new_monthly_data(
     website_leads = website_users * a.conv_web_to_lead
     website_leads_available = state.website_leads
 
-    # Direct candidate outreach: find candidates from qualified pool with diminishing returns.
-    # In this simplified model we contact all scraped candidates.
-    direct_contacted_leads = state.qualified_pool_remaining * (
-            1.0 - math.exp(-a.scraping_efficiency_k * math.log1p(d.outreach_budget / a.scraping_ref_spend))
-    )
+    # Direct candidate outreach: find candidates from qualified pool.
+    # raw_leads = how many leads this budget would find at low volumes (linear rate).
+    # The exponential saturation ensures we never exceed the remaining pool.
+    # At low spend: contacted ≈ raw_leads (linear). At high spend: approaches remaining pool.
+    if d.outreach_budget <= 0 or state.qualified_pool_remaining <= 0:
+        direct_contacted_leads = 0.0
+    else:
+        raw_leads = d.outreach_budget * a.outreach_leads_per_1000_eur / 1000.0
+        direct_contacted_leads = state.qualified_pool_remaining * (
+                1.0 - math.exp(-raw_leads / state.qualified_pool_remaining)
+        )
     direct_contacted_cost = direct_contacted_leads * a.cost_per_direct_lead
     new_direct_demo_appointments = (
             direct_contacted_leads * a.direct_contacted_demo_conversion
@@ -149,7 +153,7 @@ def calculate_new_monthly_data(
     new_partners = math.log1p(
         math.log1p(d.partner_budget / a.partner_spend_ref)
         * math.log1p(state.product_value / a.partner_product_value_ref)
-    )
+    ) / (1.0 + state.partners_active / a.partner_saturation_scale)
     churned_partners = state.partners_active * a.partner_churn_per_month
     partners_next = max(0.0, state.partners_active - churned_partners + new_partners)
 

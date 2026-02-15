@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from otai_forecast.config import DEFAULT_ASSUMPTIONS, SCENARIO_ASSUMPTIONS
+from otai_forecast.config import ALL_SCENARIOS, DEFAULT_ASSUMPTIONS
 from otai_forecast.models import MonthlyDecision
 from otai_forecast.optimization_storage import (
     assumptions_hash,
@@ -52,7 +52,7 @@ class TestOptimizationStorage(unittest.TestCase):
                 self.decisions,
                 first_df,
                 base_dir=base_dir,
-                scenario_assumptions=SCENARIO_ASSUMPTIONS,
+                scenario_assumptions=ALL_SCENARIOS,
             )
 
             lower_df = self._make_df(market_cap=90.0, cash=12.0)
@@ -61,7 +61,7 @@ class TestOptimizationStorage(unittest.TestCase):
                 self.decisions,
                 lower_df,
                 base_dir=base_dir,
-                scenario_assumptions=SCENARIO_ASSUMPTIONS,
+                scenario_assumptions=ALL_SCENARIOS,
             )
             payload = load_optimization(base_dir, assumption_key)
             self.assertIsNotNone(payload)
@@ -73,7 +73,7 @@ class TestOptimizationStorage(unittest.TestCase):
                 self.decisions,
                 higher_df,
                 base_dir=base_dir,
-                scenario_assumptions=SCENARIO_ASSUMPTIONS,
+                scenario_assumptions=ALL_SCENARIOS,
             )
             payload = load_optimization(base_dir, assumption_key)
             self.assertIsNotNone(payload)

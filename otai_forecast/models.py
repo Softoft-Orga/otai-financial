@@ -99,6 +99,7 @@ class Assumptions(BaseModel):
     partner_product_value_ref: float = Field(gt=0)
     partner_commission_rate: float = Field(ge=0, le=1)
     partner_churn_per_month: float = Field(ge=0, le=1)
+    partner_saturation_scale: float = Field(gt=0)
     partner_pro_deals_per_partner_per_month: float = Field(ge=0)
     partner_ent_deals_per_partner_per_month: float = Field(ge=0)
 
@@ -107,16 +108,15 @@ class Assumptions(BaseModel):
     operating_per_user: float = Field(ge=0, description="Variable operating cost per user (all tiers). Must be >= 0.")
     operating_per_dev: float = Field(ge=0, description="Operating cost multiplier per dev spend euro. Must be >= 0.")
 
-    # Scraping & Outreach Model
-    qualified_pool_total: float = Field(ge=0, description="Total size of qualified prospects pool. Must be >= 0.")
-    scraping_efficiency_k: float = Field(ge=0, description="Scraping efficiency coefficient. Must be >= 0.")
-    scraping_ref_spend: float = Field(gt=0, description="Reference scraping spend for efficiency calculation. Must be > 0.")
+    # Outreach Model
+    qualified_pool_total: float = Field(ge=0, description="Total addressable prospects in the market. Depletes as leads are contacted each month. Must be >= 0.")
+    outreach_leads_per_1000_eur: float = Field(gt=0, description="Leads found per €1,000 outreach spend at low volumes (before pool depletion). Diminishing returns apply automatically as the remaining pool shrinks. Must be > 0.")
     cost_per_direct_lead: float = Field(ge=0, description="Cost to contact one direct lead. Must be >= 0.")
     cost_per_direct_demo: float = Field(ge=0, description="Cost to run one direct demo appointment. Must be >= 0.")
 
     # Debt & Credit Model
-    debt_interest_rate_base_annual: float = Field(ge=0, description="Base annual interest rate (used with revenue scaling). Must be >= 0.")
-    debt_interest_rate_sensitivity_factor: float = Field(ge=0, description="Sensitivity factor for debt interest rate scaling with revenue. Higher values make rates decrease slower with revenue. Must be >= 0.")
+    debt_interest_rate_annual: float = Field(ge=0, le=1, description="Base annual interest rate when debt is low relative to revenue. Must be in [0, 1].")
+    debt_interest_rate_max_annual: float = Field(ge=0, le=1, description="Maximum annual interest rate when debt is very high relative to revenue. Must be in [0, 1].")
     credit_draw_factor: float = Field(ge=0, description="Multiplier applied to negative cashflow for credit draw.")
     debt_repay_factor: float = Field(ge=0, description="Multiplier applied to positive cashflow for debt repayment.")
     min_months_cash_reserve: float = Field(gt=0, description="Minimum months of cash reserves to maintain. Must be > 0.")
@@ -261,8 +261,8 @@ class MonthlyDecision(BaseModel):
     @field_validator('ads_budget', 'seo_budget', 'dev_budget', 'outreach_budget', 'partner_budget')
     @classmethod
     def budget_reasonable_upper_bound(cls, v: float) -> float:
-        if v > 10_000_000:  # Max €10M per month for any budget
-            raise ValueError('Monthly budgets must be <= €10M for realistic business modeling')
+        if v > 100_000_000:  # Max €10M per month for any budget
+            raise ValueError('Monthly budgets must be <= €100M for realistic business modeling')
         return v
 
     model_config = {"frozen": True}

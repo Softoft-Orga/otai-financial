@@ -320,10 +320,10 @@ class TestAssumptionsValidation(unittest.TestCase):
         )
         monthly_mod_debt = calculate_new_monthly_data(state_mod_debt, self.a, self.decision)
         
-        # Interest rate should match base when revenue history is empty
+        # Interest rate should match max when revenue history is empty (highest risk)
         self.assertAlmostEqual(
             monthly_mod_debt.interest_rate_annual_eff,
-            self.a.debt_interest_rate_base_annual,
+            self.a.debt_interest_rate_max_annual,
             places=6,
         )
         
@@ -335,7 +335,7 @@ class TestAssumptionsValidation(unittest.TestCase):
         
         self.assertAlmostEqual(
             monthly_high_debt.interest_rate_annual_eff,
-            self.a.debt_interest_rate_base_annual,
+            self.a.debt_interest_rate_max_annual,
             places=6,
         )
 

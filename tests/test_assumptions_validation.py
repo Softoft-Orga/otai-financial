@@ -286,10 +286,10 @@ class TestAssumptionsValidation(unittest.TestCase):
         # Interest should be positive
         self.assertGreater(monthly_with_debt.interest_payment, 0.0)
         
-        # Interest rate should match base when no revenue history is available
+        # Interest rate should match max when no revenue history is available
         annual_rate = monthly_with_debt.interest_rate_annual_eff
         self.assertAlmostEqual(
-            annual_rate, self.a.debt_interest_rate_base_annual, places=6
+            annual_rate, self.a.debt_interest_rate_max_annual, places=6
         )
 
     def test_cash_flow_sensible(self):

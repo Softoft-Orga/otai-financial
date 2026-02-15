@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from otai_forecast.config import (
+    ALL_SCENARIOS,
     DEFAULT_DECISION,
     OPTIMIZER_KNOT_HIGHS,
     OPTIMIZER_KNOT_LOWS,
@@ -67,10 +68,10 @@ def _scenario_map(
 
 def _load_scenario_assumptions(payload: dict | None) -> list[ScenarioAssumptions]:
     if payload is None:
-        return list(SCENARIO_ASSUMPTIONS)
+        return list(ALL_SCENARIOS)
     raw_scenarios = payload.get("assumption_scenarios")
     if not isinstance(raw_scenarios, list) or not raw_scenarios:
-        return list(SCENARIO_ASSUMPTIONS)
+        return list(ALL_SCENARIOS)
     scenarios: list[ScenarioAssumptions] = []
     for scenario in raw_scenarios:
         if not isinstance(scenario, dict):
@@ -78,8 +79,8 @@ def _load_scenario_assumptions(payload: dict | None) -> list[ScenarioAssumptions
         try:
             scenarios.append(ScenarioAssumptions(**scenario))
         except Exception:
-            return list(SCENARIO_ASSUMPTIONS)
-    return scenarios or list(SCENARIO_ASSUMPTIONS)
+            return list(ALL_SCENARIOS)
+    return scenarios or list(ALL_SCENARIOS)
 
 
 def _apply_optimization_payload(payload: dict) -> None:
@@ -254,8 +255,7 @@ GROWTH_COL_B_METRICS: list[MetricSpec] = [
     ),
     ("Domain rating decay", "domain_rating_decay", _format_float),
     ("Qualified pool", "qualified_pool_total", _format_int),
-    ("Scraping efficiency k", "scraping_efficiency_k", _format_float),
-    ("Scraping ref spend", "scraping_ref_spend", _format_int),
+    ("Outreach leads / €1k", "outreach_leads_per_1000_eur", _format_int),
 ]
 
 FINANCE_COL_A_METRICS: list[MetricSpec] = [
@@ -288,7 +288,8 @@ FINANCE_COL_B_METRICS: list[MetricSpec] = [
     ("Support cost / Ent", "support_cost_per_ent", _format_currency),
     ("Cost per direct lead", "cost_per_direct_lead", _format_currency),
     ("Cost per direct demo", "cost_per_direct_demo", _format_currency),
-    ("Base interest rate (annual)", "debt_interest_rate_base_annual", _format_percent_1),
+    ("Interest rate (annual)", "debt_interest_rate_annual", _format_percent_1),
+    ("Max interest rate (annual)", "debt_interest_rate_max_annual", _format_percent_1),
     ("Credit draw factor", "credit_draw_factor", _format_float),
     ("Debt repay factor", "debt_repay_factor", _format_float),
 ]
@@ -319,7 +320,7 @@ def main():
     selected_tab = query_params.get("tab", ["documentation"])[0] if query_params.get("tab") else "documentation"
 
     if "scenario_assumptions" not in st.session_state:
-        st.session_state.scenario_assumptions = list(SCENARIO_ASSUMPTIONS)
+        st.session_state.scenario_assumptions = list(ALL_SCENARIOS)
 
     scenarios = st.session_state.scenario_assumptions
     scenario_map = _scenario_map(scenarios)
@@ -438,7 +439,7 @@ def main():
                 st.session_state.df = df
                 st.session_state.decisions = decisions
                 st.session_state.assumptions = a
-                st.session_state.scenario_assumptions = list(SCENARIO_ASSUMPTIONS)
+                st.session_state.scenario_assumptions = list(ALL_SCENARIOS)
                 st.session_state.assumption_key = save_optimization(
                     a,
                     decisions,

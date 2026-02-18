@@ -33,6 +33,80 @@ def _assumptions_df(assumptions: Any | None) -> pd.DataFrame | None:
     )
 
 
+def _assumptions_df_with_descriptions(assumptions: Any | None) -> pd.DataFrame | None:
+    """Build assumptions table with descriptions from Pydantic field metadata, excluding pricing_milestones."""
+    if assumptions is None:
+        return None
+    from .models import Assumptions
+
+    a = _maybe_asdict(assumptions)
+    if not isinstance(a, dict):
+        return None
+
+    field_descs = {
+        name: field.description or ""
+        for name, field in Assumptions.model_fields.items()
+    }
+
+    rows = []
+    for k, v in a.items():
+        if k == "pricing_milestones":
+            continue
+        rows.append({"Parameter": k, "Value": v, "Description": field_descs.get(k, "")})
+    return pd.DataFrame(rows, columns=["Parameter", "Value", "Description"])
+
+
+def _pricing_milestones_df(assumptions: Any | None) -> pd.DataFrame | None:
+    """Extract pricing_milestones into a separate table."""
+    if assumptions is None:
+        return None
+    from .models import Assumptions, PricingMilestone
+
+    milestones = getattr(assumptions, "pricing_milestones", None)
+    if milestones is None:
+        a = _maybe_asdict(assumptions)
+        milestones = a.get("pricing_milestones") if isinstance(a, dict) else None
+    if not milestones:
+        return None
+
+    rows = []
+    for i, m in enumerate(milestones):
+        md = _maybe_asdict(m) if not isinstance(m, dict) else m
+        rows.append({
+            "Milestone": f"v{i + 1}",
+            "Product Value Min (€)": md.get("product_value_min", 0),
+            "Pro Price (€)": md.get("pro_price", 0),
+            "Enterprise Price (€)": md.get("ent_price", 0),
+        })
+
+    desc_map = {
+        name: field.description or ""
+        for name, field in PricingMilestone.model_fields.items()
+    }
+    desc_row = {
+        "Milestone": "Description",
+        "Product Value Min (€)": desc_map.get("product_value_min", ""),
+        "Pro Price (€)": desc_map.get("pro_price", ""),
+        "Enterprise Price (€)": desc_map.get("ent_price", ""),
+    }
+    rows.append(desc_row)
+    return pd.DataFrame(rows)
+
+
+def _docs_content() -> list[tuple[str, str]]:
+    """Read all documentation markdown files and return (title, content) pairs."""
+    import pathlib
+
+    docs_dir = pathlib.Path(__file__).resolve().parent.parent / "docs"
+    results = []
+    if docs_dir.is_dir():
+        for md_file in sorted(docs_dir.glob("*.md")):
+            title = md_file.stem.replace("_", " ").title()
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+            results.append((title, content))
+    return results
+
+
 def _decisions_df(monthly_decisions: Any | None) -> pd.DataFrame | None:
     if monthly_decisions is None:
         return None
@@ -739,13 +813,20 @@ def export_simple_budget(
 ) -> str:
     """Export a simplified Excel: Overview (with plots), Detailed Monthly Plan, Assumptions."""
     from .plots import (
+        plot_cash_burn_rate,
         plot_cash_position,
+        plot_costs_breakdown,
+        plot_customer_acquisition_channels,
+        plot_debt_interest_cash,
         plot_market_cap,
         plot_net_cashflow,
         plot_product_value,
         plot_results,
+        plot_revenue_breakdown,
         plot_revenue_cashflow,
+        plot_revenue_split,
         plot_ttm_revenue,
+        plot_user_growth_stacked,
     )
 
     n = len(df)
@@ -902,6 +983,13 @@ def export_simple_budget(
         "Product Value": lambda: plot_product_value(df),
         "TTM Revenue": lambda: plot_ttm_revenue(df),
         "Market Cap": lambda: plot_market_cap(df),
+        "User Growth (Stacked)": lambda: plot_user_growth_stacked(df),
+        "Revenue Breakdown": lambda: plot_revenue_breakdown(df),
+        "Revenue Split by Source": lambda: plot_revenue_split(df, embedded=True),
+        "Costs Breakdown": lambda: plot_costs_breakdown(df),
+        "Cash & Burn Rate": lambda: plot_cash_burn_rate(df),
+        "Debt, Cash & Interest Rate": lambda: plot_debt_interest_cash(df),
+        "Acquisition Channels": lambda: plot_customer_acquisition_channels(df),
     }
 
     # Generate all figures first, then render to PNG in parallel

@@ -8,6 +8,7 @@ from otai_forecast.config import (
     OPTIMIZER_NUM_KNOTS,
     RUN_BASE_DECISION,
     SCENARIO_ASSUMPTIONS,
+    WARM_START_KNOTS,
     build_base_decisions,
 )
 from otai_forecast.decision_optimizer import (
@@ -78,6 +79,7 @@ def run(
                 num_knots=OPTIMIZER_NUM_KNOTS,
                 knot_config=OPTIMIZER_KNOT_CONFIG,
                 max_evals=1000,
+                warm_start_knots=WARM_START_KNOTS,
             )
             save_optimization(
                 assumptions,

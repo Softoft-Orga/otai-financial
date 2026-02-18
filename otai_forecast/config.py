@@ -7,7 +7,7 @@ from .models import Assumptions, MonthlyDecision, PricingMilestone, ScenarioAssu
 # Default assumptions used across the application
 DEFAULT_ASSUMPTIONS = Assumptions(
     months=24,  # 2-year simulation horizon typical for SaaS financial planning
-    starting_cash=25000.0,  # Initial seed capital - THIS IS DEFINITIVE
+    starting_cash=35000.0,  # Initial seed capital - THIS IS DEFINITIVE
     # CPC (Cost Per Click) parameters - realistic range for B2B SaaS is 1.5-7 EUR
     cpc_base=2,  # Base CPC at low spend levels (best case scenario)
     cpc_sensitivity_factor=1,
@@ -15,13 +15,14 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     cpc_ref_spend=2000.0,  # Reference spend level for CPC calculations
     # SEO (Search Engine Optimization) parameters
     # Competitors typically have Ahrefs Domain Rating (DR) of 40-70
-    seo_users_per_eur=2,  # Users generated per EUR spent on SEO content/links
+    seo_users_per_eur=1,  # Users generated per EUR spent on SEO content/links
 
-    domain_rating_init=2,
+    domain_rating_init=4,
     domain_rating_max=100.0,  # Maximum achievable domain rating (theoretical ceiling)
-    domain_rating_spend_sensitivity=0.05, # Growth coefficient for DR improvement from SEO spend (lower = harder to grow)
+    domain_rating_spend_sensitivity=0.05,
+    # Growth coefficient for DR improvement from SEO spend (lower = harder to grow)
     domain_rating_reference_spend_eur=2000.0,  # Reference monthly SEO spend for DR growth calculations
-    domain_rating_decay=0.03,  # Natural monthly decay of domain rating without maintenance
+    domain_rating_decay=0.01,  # Natural monthly decay of domain rating without maintenance
     # Conversion funnel rates (typical B2B SaaS benchmarks)
     conv_web_to_lead=0.05,  # 5% of website visitors become leads (more conservative)
     conv_website_lead_to_free=0.4,
@@ -44,11 +45,13 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     pricing_milestones=(
         PricingMilestone(product_value_min=0.0, pro_price=2500.0, ent_price=10000.0),
         PricingMilestone(product_value_min=100_000.0, pro_price=5000.0, ent_price=20000.0),
-        PricingMilestone(product_value_min=250_000.0, pro_price=6000.0, ent_price=22500.0),
-        PricingMilestone(product_value_min=500_000.0, pro_price=6500.0, ent_price=25000.0),
-        PricingMilestone(product_value_min=1_000_000.0, pro_price=7_000.0, ent_price=27_500.0),
-        PricingMilestone(product_value_min=2_500_000.0, pro_price=8_000.0, ent_price=30_000.0),
-        PricingMilestone(product_value_min=5_000_000.0, pro_price=9_000.0, ent_price=32_500.0),
+        PricingMilestone(product_value_min=200_000.0, pro_price=5500.0, ent_price=22000.0),
+        PricingMilestone(product_value_min=400_000.0, pro_price=6000.0, ent_price=24000.0),
+        PricingMilestone(product_value_min=800_000.0, pro_price=6_500.0, ent_price=26_000.0),
+        PricingMilestone(product_value_min=1_600_000.0, pro_price=7_000.0, ent_price=28_000.0),
+        PricingMilestone(product_value_min=3_200_000.0, pro_price=7_500.0, ent_price=30_000.0),
+        PricingMilestone(product_value_min=6_400_000.0, pro_price=8_000.0, ent_price=32_000.0),
+        PricingMilestone(product_value_min=12_800_000.0, pro_price=8_500.0, ent_price=34_000.0),
     ),
 
     tax_rate=0.25,  # Corporate tax rate (25% - typical for many European countries)
@@ -77,12 +80,13 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     partner_pro_deals_per_partner_per_month=0.5,  # Average 0.5 pro deals per partner per month
     partner_ent_deals_per_partner_per_month=0.1,  # Average 0.5 enterprise deals per partner per month
     # Operating costs (monthly EUR)
-    operating_baseline=1000.0,  # Fixed baseline costs (tools, software, basic infrastructure)
-    operating_per_user=2,  # Variable cost per active user (hosting, bandwidth, etc.)
+    operating_baseline=500.0,  # Fixed baseline costs (tools, software, basic infrastructure)
+    operating_per_user=1,  # Variable cost per active user (hosting, bandwidth, etc.)
     operating_per_dev=0.25,  # Additional cost per dev spend (dev tools, cloud services for development)
     # Lead generation via outreach
     qualified_pool_total=20_000.0,  # Total addressable prospects in the market
-    outreach_leads_per_1000_eur=50.0,  # €1,000 finds ~2,000 leads at low volumes (diminishing returns kick in as pool depletes)
+    outreach_leads_per_1000_eur=200.0,
+    # €1,000 finds ~2,000 leads at low volumes (diminishing returns kick in as pool depletes)
     cost_per_direct_lead=10.0,  # Additional cost per lead to actually contact them
     cost_per_direct_demo=200.0,
     # Debt financing parameters
@@ -91,10 +95,10 @@ DEFAULT_ASSUMPTIONS = Assumptions(
     credit_draw_factor=1.25,
     debt_repay_factor=0.25,
     min_months_cash_reserve=3.0,  # Maintain 3 months of cash reserves
-    minimum_cash_balance=5_000.0,  # Minimum cash balance for optimizer constraint
+    minimum_cash_balance=1_000.0,  # Minimum cash balance for optimizer constraint
     minimum_liquidity_ratio=0.25,  # Minimum (cash + product_value) / debt
     # Product value dynamics (dev spend accumulation with depreciation)
-    pv_init=100_000.0,  # Initial product value (starting milestone)
+    pv_init=105_000.0,  # Initial product value (starting milestone)
     pv_min=0.0,  # Minimum product value floor
     product_value_depreciation_rate=0.01,  # 1% monthly depreciation
     milestone_achieved_renewal_percentage=0.5,  # 50% of licenses renew on new milestone
@@ -116,16 +120,26 @@ RUN_BASE_DECISION = DEFAULT_DECISION
 
 OPTIMIZER_NUM_KNOTS = 9
 _DEFAULT_KNOT_LOWS = [0.01 for _ in range(OPTIMIZER_NUM_KNOTS)]
-_DEFAULT_KNOT_HIGHS = [4 * 1.3 ** (i + 2) for i in range(OPTIMIZER_NUM_KNOTS)]
-
-
+_DEFAULT_KNOT_HIGHS = [1.5 ** (i + 2) for i in range(OPTIMIZER_NUM_KNOTS)]
 
 OPTIMIZER_KNOT_CONFIG: dict[str, dict[str, list[float]]] = {
-    "ads":      {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
-    "seo":      {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
-    "dev":      {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
-    "partner":  {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
-    "outreach": {"lows": _DEFAULT_KNOT_LOWS, "highs": [100 - 10 * i for i in range(OPTIMIZER_NUM_KNOTS)]},
+    "ads": {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
+    "seo": {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
+    "dev": {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
+    "partner": {"lows": _DEFAULT_KNOT_LOWS, "highs": _DEFAULT_KNOT_HIGHS},
+    "outreach": {"lows": _DEFAULT_KNOT_LOWS,
+                 "highs": [40 * (i+1) / OPTIMIZER_NUM_KNOTS for i in range(OPTIMIZER_NUM_KNOTS)]},
+}
+
+# Warm-start knots: set to a known-good solution to give TPE a strong baseline.
+# Each list has OPTIMIZER_NUM_KNOTS values (multipliers on the base decision).
+# Set to None to disable warm-starting.
+WARM_START_KNOTS: dict[str, list[float]] = {
+    "ads": [0.1, 0.5, 0.5, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+    "seo": [0.1, 0.5, 1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5],
+    "dev": [0.5, 1.5, 2.0, 3.0, 4.0, 5.0, 8.0, 9.0, 10.0],
+    "partner": [0.1, 0.4, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5],
+    "outreach": [2.0, 5.0, 3.0, 2.0, 1.5, 1.0, 0.8, 0.5, 0.1],
 }
 
 
@@ -146,10 +160,10 @@ def _scale_assumptions(
 
 
 CONSERVATIVE_MULTIPLIERS: dict[str, float] = {
-    "debt_interest_rate_annual": 1.25,
-    "debt_interest_rate_max_annual": 2.5,
-    "min_months_cash_reserve": 1,
-    "minimum_liquidity_ratio": 1,
+    "debt_interest_rate_annual": 2,
+    "debt_interest_rate_max_annual": 3,
+    "min_months_cash_reserve": 2,
+    "minimum_liquidity_ratio": 2,
     "seo_users_per_eur": 1,
     "domain_rating_spend_sensitivity": 0.25,
     "conv_web_to_lead": 0.7,

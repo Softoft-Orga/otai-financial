@@ -193,6 +193,7 @@ def choose_best_decisions_by_market_cap(
         knot_lows: list[float] | None = None,
         knot_highs: list[float] | None = None,
         knot_config: dict[str, dict[str, list[float]]] | None = None,
+        warm_start_knots: dict[str, list[float]] | None = None,
 ) -> tuple[list[MonthlyDecision], pd.DataFrame]:
     """
     Optimize decisions using Optuna with TPE sampler.
@@ -213,6 +214,8 @@ def choose_best_decisions_by_market_cap(
         knot_config: Optional per-decision knot bounds. Dict mapping decision
             name ("ads", "seo", "dev", "partner", "outreach") to
             {"lows": [...], "highs": [...]}. Overrides knot_lows/knot_highs.
+        warm_start_knots: Optional dict mapping lever names to knot values
+            for warm-starting the optimization with a known-good solution.
         
     Returns:
         Tuple of (best_decisions, best_dataframe)
@@ -239,8 +242,21 @@ def choose_best_decisions_by_market_cap(
     study = optuna.create_study(
         study_name=study_name,
         sampler=sampler,
-        direction="maximize"
+        direction="maximize",
+        pruner=optuna.pruners.PercentilePruner(
+            percentile=25.0,
+            n_startup_trials=15,
+            n_warmup_steps=3,
+        ),
     )
+
+    # Warm-start with a known-good solution so TPE has a strong baseline
+    if warm_start_knots is not None:
+        params = {}
+        for name, knots in warm_start_knots.items():
+            for i, val in enumerate(knots):
+                params[f"{name}_knot_{i}"] = val
+        study.enqueue_trial(params)
 
     def _suggest_knots(trial: optuna.Trial, prefix: str) -> list[float]:
         if knot_config is not None and prefix in knot_config:
@@ -293,8 +309,9 @@ def choose_best_decisions_by_market_cap(
 
         # Report intermediate values every month for pruning
         for month_idx in range(len(df)):
-            # Report market cap at each month
             trial.report(float(df["market_cap"].iloc[month_idx]), step=month_idx)
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
 
         # Check if cash went too small (constraint violation)
         if df["cash"].min() < a.minimum_cash_balance:
